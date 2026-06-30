@@ -49,6 +49,16 @@ a {
     background-color: #76787a;
   }
 
+  .btn-transparent {
+    @apply font-medium px-4 py-2 rounded-md transition-colors inline-block text-center cursor-pointer border border-gray-300;
+    background-color: transparent;
+    color: #676A6C;
+  }
+
+  .btn-transparent:hover {
+    background-color: #F3F3F4;
+  }
+
 
   /* Alerts */
   .alert-danger {
@@ -70,5 +80,10 @@ a {
     color: #1C84C6;
     background-color: #D9EDF7;
     border-color: #BCE8F1;
+  }
+
+  /* Input Fields */
+  .input-field {
+    @apply w-full px-3 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-teal-500 transition-colors;
   }
 }
