@@ -1,35 +1,37 @@
-import { useState } from 'react';
-import { useNavigate, useLocation, Navigate } from 'react-router-dom';
-import { Lock, Eye, EyeOff } from 'lucide-react';
-import AuthLayout from '../../layouts/AuthLayout';
-import { resetPassword } from '../../api/authApi';
+import { useState } from "react";
+import { useNavigate, useLocation, Navigate } from "react-router-dom";
+import { Form, Input, Button, Alert, Typography } from "antd";
+import { LockOutlined } from "@ant-design/icons";
+import AuthLayout from "../../layouts/AuthLayout";
+import { resetPassword } from "../../api/authApi";
+
+const { Title, Text } = Typography;
 
 export default function ResetPassword() {
   const navigate = useNavigate();
   const location = useLocation();
   const { resetToken } = location.state || {};
 
-  const [newPassword, setNewPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   if (!resetToken) {
     return <Navigate to="/forgot-password" replace />;
   }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
-    setMessage('');
+  const handleFinish = async ({ newPassword }) => {
+    setError("");
+    setMessage("");
     setLoading(true);
     try {
       const { data } = await resetPassword(resetToken, newPassword);
       setMessage(data.message);
-      setTimeout(() => navigate('/'), 3000);
+      setTimeout(() => navigate("/"), 3000);
     } catch (err) {
-      setError(err.response?.data?.message || 'Could not reset password. Please try again.');
+      setError(
+        err.response?.data?.message || "Could not reset password. Please try again.",
+      );
     } finally {
       setLoading(false);
     }
@@ -37,41 +39,59 @@ export default function ResetPassword() {
 
   return (
     <AuthLayout>
-      <h2 className="text-2xl text-gray-700 mb-1">Reset Password</h2>
-      <p className="text-sm mb-6" style={{ color: 'var(--page-text)' }}>
+      <Title level={3} style={{ marginBottom: 4 }}>
+        Reset Password
+      </Title>
+      <Text type="secondary" style={{ display: "block", marginBottom: 20 }}>
         Enter your new password below.
-      </p>
+      </Text>
 
-      {error && <div className="alert-danger mb-4">{error}</div>}
-      {message && <div className="alert-success mb-4">{message}</div>}
+      {error && (
+        <Alert
+          message={error}
+          type="error"
+          showIcon
+          closable
+          onClose={() => setError("")}
+          style={{ marginBottom: 20 }}
+        />
+      )}
+      {message && (
+        <Alert
+          message={message}
+          type="success"
+          showIcon
+          style={{ marginBottom: 20 }}
+        />
+      )}
 
       {!message && (
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <div className="relative">
-            <Lock size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              type={showPassword ? 'text' : 'password'}
+        <Form
+          layout="vertical"
+          onFinish={handleFinish}
+          requiredMark={false}
+          size="large"
+        >
+          <Form.Item
+            name="newPassword"
+            rules={[
+              { required: true, message: "Please enter a new password." },
+              { min: 8, message: "Password must be at least 8 characters." },
+            ]}
+          >
+            <Input.Password
+              prefix={<LockOutlined style={{ color: "#bfbfbf" }} />}
               placeholder="New Password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              required
-              minLength={8}
-              className="input-field pl-10 pr-10"
+              autoComplete="new-password"
             />
-            <button
-              type="button"
-              onClick={() => setShowPassword((s) => !s)}
-              className="absolute right-3 top-1/2 -translate-y-1/2"
-              style={{ color: 'var(--page-link)' }}
-            >
-              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-            </button>
-          </div>
+          </Form.Item>
 
-          <button type="submit" disabled={loading} className="btn-primary w-full">
-            {loading ? 'Resetting...' : 'Reset Password'}
-          </button>
-        </form>
+          <Form.Item>
+            <Button type="primary" htmlType="submit" loading={loading} block>
+              Reset Password
+            </Button>
+          </Form.Item>
+        </Form>
       )}
     </AuthLayout>
   );

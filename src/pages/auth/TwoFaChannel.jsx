@@ -1,28 +1,30 @@
-import { useState } from 'react';
-import { useNavigate, useLocation, Navigate } from 'react-router-dom';
-import AuthLayout from '../../layouts/AuthLayout';
-import { send2faCode } from '../../api/authApi';
+import { useState } from "react";
+import { useNavigate, useLocation, Navigate } from "react-router-dom";
+import { Form, Radio, Button, Alert, Typography } from "antd";
+import AuthLayout from "../../layouts/AuthLayout";
+import { send2faCode } from "../../api/authApi";
+
+const { Title, Text } = Typography;
 
 export default function TwoFaChannel() {
   const navigate = useNavigate();
   const location = useLocation();
   const { email, password, userId } = location.state || {};
-  const [channel, setChannel] = useState('email');
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   if (!email || !password) {
     return <Navigate to="/" replace />;
   }
 
-  const handleSendCode = async () => {
-    setError('');
+  const handleFinish = async ({ channel }) => {
+    setError("");
     setLoading(true);
     try {
       await send2faCode(email, password, channel);
-      navigate('/2FA-Code', { state: { email, password, channel, userId } });
+      navigate("/2FA-Code", { state: { email, password, channel, userId } });
     } catch (err) {
-      setError(err.response?.data?.message || 'Could not send code. Please try again.');
+      setError(err.response?.data?.message || "Could not send code. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -30,39 +32,48 @@ export default function TwoFaChannel() {
 
   return (
     <AuthLayout>
-      <h2 className="text-2xl text-gray-700 mb-1">Two-Factor Authentication</h2>
-      <p className="text-sm mb-6" style={{ color: 'var(--page-text)' }}>
+      <Title level={3} style={{ marginBottom: 4 }}>
+        Two-Factor Authentication
+      </Title>
+      <Text type="secondary" style={{ display: "block", marginBottom: 20 }}>
         Your account has two-factor authentication enabled. Choose where to receive the verification code.
-      </p>
+      </Text>
 
-      {error && <div className="alert-danger mb-4">{error}</div>}
-    
-      <div className="space-y-2 mb-4">
-        <label className="flex items-center gap-2 border border-gray-300 rounded-md px-3 py-2 cursor-pointer">
-          <input
-            type="radio"
-            name="channel"
-            value="email"
-            checked={channel === 'email'}
-            onChange={() => setChannel('email')}
-          />
-          <span className="text-sm">Email</span>
-        </label>
-        <label className="flex items-center gap-2 border border-gray-300 rounded-md px-3 py-2 cursor-pointer">
-          <input
-            type="radio"
-            name="channel"
-            value="phone"
-            checked={channel === 'phone'}
-            onChange={() => setChannel('phone')}
-          />
-          <span className="text-sm">Phone</span>
-        </label>
-      </div>
+      {error && (
+        <Alert
+          message={error}
+          type="error"
+          showIcon
+          closable
+          onClose={() => setError("")}
+          style={{ marginBottom: 20 }}
+        />
+      )}
 
-      <button onClick={handleSendCode} disabled={loading} className="btn-primary w-full">
-        {loading ? 'Sending...' : 'Send Code'}
-      </button>
+      <Form
+        layout="vertical"
+        onFinish={handleFinish}
+        requiredMark={false}
+        size="large"
+        initialValues={{ channel: "email" }}
+      >
+        <Form.Item name="channel">
+          <Radio.Group style={{ width: "100%" }}>
+            <Radio.Button value="email" style={{ width: "50%", textAlign: "center" }}>
+              Email
+            </Radio.Button>
+            <Radio.Button value="phone" style={{ width: "50%", textAlign: "center" }}>
+              Phone
+            </Radio.Button>
+          </Radio.Group>
+        </Form.Item>
+
+        <Form.Item>
+          <Button type="primary" htmlType="submit" loading={loading} block>
+            Send Code
+          </Button>
+        </Form.Item>
+      </Form>
     </AuthLayout>
   );
 }

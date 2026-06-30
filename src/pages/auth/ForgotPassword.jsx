@@ -1,26 +1,27 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Mail } from 'lucide-react';
-import AuthLayout from '../../layouts/AuthLayout';
-import { forgotPassword } from '../../api/authApi';
+import { useState } from "react";
+import { useNavigate, Link } from "react-router-dom";
+import { Form, Input, Button, Radio, Alert, Typography } from "antd";
+import { MailOutlined } from "@ant-design/icons";
+import AuthLayout from "../../layouts/AuthLayout";
+import { forgotPassword } from "../../api/authApi";
+
+const { Title, Text } = Typography;
 
 export default function ForgotPassword() {
   const navigate = useNavigate();
-
-  const [email, setEmail] = useState('');
-  const [channel, setChannel] = useState('email');
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
+  const handleFinish = async ({ email, channel }) => {
+    setError("");
     setLoading(true);
     try {
       await forgotPassword(email, channel);
-      navigate('/verify-reset-code', { state: { email } });
+      navigate("/verify-reset-code", { state: { email } });
     } catch (err) {
-      setError(err.response?.data?.message || 'Something went wrong. Please try again.');
+      setError(
+        err.response?.data?.message || "Something went wrong. Please try again.",
+      );
     } finally {
       setLoading(false);
     }
@@ -28,58 +29,65 @@ export default function ForgotPassword() {
 
   return (
     <AuthLayout>
-      <h2 className="text-2xl text-gray-700 mb-1">Forgot Password</h2>
-      <p className="text-sm mb-6" style={{ color: 'var(--page-text)' }}>
+      <Title level={3} style={{ marginBottom: 4 }}>
+        Forgot Password
+      </Title>
+      <Text type="secondary" style={{ display: "block", marginBottom: 20 }}>
         Enter your email and choose where to receive your reset code.
-      </p>
+      </Text>
 
-      {error && <div className="alert-danger mb-4">{error}</div>}
+      {error && (
+        <Alert
+          message={error}
+          type="error"
+          showIcon
+          closable
+          onClose={() => setError("")}
+          style={{ marginBottom: 20 }}
+        />
+      )}
 
-      <form onSubmit={handleSubmit} className="space-y-3">
-        <div className="relative">
-          <Mail size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            className="input-field pl-10"
+      <Form
+        layout="vertical"
+        onFinish={handleFinish}
+        requiredMark={false}
+        size="large"
+        initialValues={{ channel: "email" }}
+      >
+        <Form.Item
+          name="email"
+          rules={[
+            { required: true, message: "Please enter your email." },
+            { type: "email", message: "Please enter a valid email." },
+          ]}
+        >
+          <Input
+            prefix={<MailOutlined style={{ color: "#bfbfbf" }} />}
+            placeholder="Enter Email"
+            autoComplete="email"
           />
-        </div>
+        </Form.Item>
 
-        <div className="space-y-2">
-          <label className="flex items-center gap-2 border border-gray-300 rounded-md px-3 py-2 cursor-pointer">
-            <input
-              type="radio"
-              name="channel"
-              value="email"
-              checked={channel === 'email'}
-              onChange={() => setChannel('email')}
-            />
-            <span className="text-sm">Email</span>
-          </label>
-          <label className="flex items-center gap-2 border border-gray-300 rounded-md px-3 py-2 cursor-pointer">
-            <input
-              type="radio"
-              name="channel"
-              value="phone"
-              checked={channel === 'phone'}
-              onChange={() => setChannel('phone')}
-            />
-            <span className="text-sm">Phone</span>
-          </label>
-        </div>
+        <Form.Item name="channel">
+          <Radio.Group style={{ width: "100%" }}>
+            <Radio.Button value="email" style={{ width: "50%", textAlign: "center" }}>
+              Email
+            </Radio.Button>
+            <Radio.Button value="phone" style={{ width: "50%", textAlign: "center" }}>
+              Phone
+            </Radio.Button>
+          </Radio.Group>
+        </Form.Item>
 
-        <button type="submit" disabled={loading} className="btn-primary w-full mt-2">
-          {loading ? 'Sending...' : 'Send Reset Code'}
-        </button>
-      </form>
+        <Form.Item>
+          <Button type="primary" htmlType="submit" loading={loading} block>
+            Send Reset Code
+          </Button>
+        </Form.Item>
+      </Form>
 
-      <div className="text-center mt-4">
-        <a href="/" className="text-sm">
-          Back to Login
-        </a>
+      <div style={{ textAlign: "center" }}>
+        <Link to="/">Back to Login</Link>
       </div>
     </AuthLayout>
   );

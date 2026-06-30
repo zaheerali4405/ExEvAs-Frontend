@@ -1,89 +1,21 @@
-@import "tailwindcss";
-
-:root {
-  --page-bg: #FFFFFF;
-  --page-bg-secondary: #F3F3F4;
-  --page-text: #676A6C;
-  --page-link: #337AB7;
+*, *::before, *::after {
+  box-sizing: border-box;
 }
 
-body {
-  background-color: var(--page-bg);
-  color: var(--page-text);
+html, body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background-color: #f5f5f5;
 }
 
 a {
-  color: var(--page-link);
+  color: #337AB7;
 }
 
-@layer components {
-
-  /* Buttons */
-  .btn-primary {
-    @apply font-medium px-4 py-2 rounded-md transition-colors inline-block text-center cursor-pointer;
-    background-color: #1AB394;
-    color: #FFFFFF;
-  }
-
-  .btn-primary:hover {
-    background-color: #18A689;
-  }
-
-  .btn-danger {
-    @apply font-medium px-4 py-2 rounded-md transition-colors inline-block text-center cursor-pointer;
-    background-color: #A94442;
-    color: #FFFFFF;
-  }
-
-  .btn-danger:hover {
-    background-color: #943c3a;
-  }
-
-  .btn-cancel {
-    @apply font-medium px-4 py-2 rounded-md transition-colors inline-block text-center cursor-pointer;
-    background-color: #8A8D8F;
-    color: #FFFFFF;
-  }
-
-  .btn-cancel:hover {
-    background-color: #76787a;
-  }
-
-  .btn-transparent {
-    @apply font-medium px-4 py-2 rounded-md transition-colors inline-block text-center cursor-pointer border border-gray-300;
-    background-color: transparent;
-    color: #676A6C;
-  }
-
-  .btn-transparent:hover {
-    background-color: #F3F3F4;
-  }
-
-
-  /* Alerts */
-  .alert-danger {
-    color: #A94442;
-    @apply px-4 py-3 rounded-md border text-sm;
-    background-color: #F2DEDE;
-    border-color: #EBCCD1;
-  }
-
-  .alert-success {
-    @apply px-4 py-3 rounded-md border text-sm;
-    color: #3C763D;
-    background-color: #DFF0D8;
-    border-color: #D6E9C6;
-  }
-
-  .alert-primary {
-    @apply px-4 py-3 rounded-md border text-sm;
-    color: #1C84C6;
-    background-color: #D9EDF7;
-    border-color: #BCE8F1;
-  }
-
-  /* Input Fields */
-  .input-field {
-    @apply w-full px-3 py-1 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-teal-500 transition-colors;
+@media (min-width: 768px) {
+  .auth-image-panel {
+    display: block !important;
   }
 }
