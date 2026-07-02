@@ -1,28 +1,109 @@
-import { Menu } from 'lucide-react';
-import Breadcrumb from './Breadcrumb';
-import UserMenu from './UserMenu';
+import { Layout, Avatar, Dropdown } from 'antd';
+import {
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
+  UserOutlined,
+  KeyOutlined,
+  SettingOutlined,
+  LogoutOutlined,
+} from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 
-const SIDEBAR_WIDTH = 'w-64'; // must match Sidebar's width
+const { Header } = Layout;
 
-export default function Navbar({ sidebarOpen, onToggleSidebar }) {
+const PRIMARY = '#1AB394';
+
+export default function Navbar({ collapsed, onToggle }) {
+  const navigate = useNavigate();
+  const { user, logout } = useAuth();
+
+  const handleLogout = () => {
+    logout();
+    navigate('/');
+  };
+
+  const userMenuItems = [
+    {
+      key: 'profile',
+      icon: <UserOutlined />,
+      label: 'View Profile',
+      onClick: () => navigate('/profile'),
+    },
+    {
+      key: 'change-password',
+      icon: <KeyOutlined />,
+      label: 'Change Password',
+      onClick: () => navigate('/change-password'),
+    },
+    {
+      key: 'settings',
+      icon: <SettingOutlined />,
+      label: 'Settings',
+      onClick: () => navigate('/settings'),
+    },
+    { type: 'divider' },
+    {
+      key: 'logout',
+      icon: <LogoutOutlined />,
+      label: 'Logout',
+      danger: true,
+      onClick: handleLogout,
+    },
+  ];
+
+  const initials = user
+    ? `${user.firstName?.[0] ?? ''}${user.lastName?.[0] ?? ''}`.toUpperCase() || null
+    : null;
+
   return (
-    <header className="w-full flex bg-white border-b border-gray-200">
-      {/* Section 1: fixed width matching sidebar, right border, always visible */}
-      <div className={`${SIDEBAR_WIDTH} shrink-0 flex items-center justify-between px-6 border-r border-gray-200`}>
-        <img src="../../../CMHLMC_Icon.png" alt="CMH LMC & IOD" className="w-12 h-12" />
-        <button onClick={onToggleSidebar} className="p-1 rounded-sm border border-gray-200 bg-gray-100 text-gray-600 hover:border-teal-100 hover:bg-teal-50 hover:text-teal-600 cursor-pointer">
-          <Menu size={22} />
-        </button>
-      </div>
+    <Header
+      style={{
+        background: PRIMARY,
+        padding: '0 16px',
+        height: 56,
+        lineHeight: '56px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        position: 'sticky',
+        top: 0,
+        zIndex: 100,
+      }}
+    >
+      {/* Left: hamburger toggle */}
+      <button
+        onClick={onToggle}
+        style={{
+          background: 'transparent',
+          border: 'none',
+          cursor: 'pointer',
+          color: '#ffffff',
+          fontSize: 20,
+          display: 'flex',
+          alignItems: 'center',
+          padding: '0 8px',
+        }}
+      >
+        {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+      </button>
 
-      {/* Section 2: title + breadcrumb on left, user menu on right */}
-      <div className="flex-1 flex items-center justify-between px-6 py-4">
-        <div>
-          <h1 className="text-base font-bold">ExEvAs Scheduling Engine</h1>
-          <Breadcrumb />
+      {/* Right: user dropdown */}
+      <Dropdown menu={{ items: userMenuItems }} placement="bottomRight" trigger={['click']}>
+        <div style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Avatar
+            style={{ background: '#ffffff', color: PRIMARY, fontWeight: 600 }}
+            icon={!initials ? <UserOutlined /> : undefined}
+          >
+            {initials}
+          </Avatar>
+          {user && (
+            <span style={{ color: '#ffffff', fontSize: 14 }}>
+              {user.firstName ?? user.email}
+            </span>
+          )}
         </div>
-        <UserMenu />
-      </div>
-    </header>
+      </Dropdown>
+    </Header>
   );
 }

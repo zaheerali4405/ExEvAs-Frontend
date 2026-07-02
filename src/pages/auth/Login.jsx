@@ -87,7 +87,7 @@ export default function Login() {
           />
         </Form.Item>
 
-        <Form.Item>
+        <Form.Item style={{ marginBottom: 15 }}>
           <div
             style={{
               display: "flex",

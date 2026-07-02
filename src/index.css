@@ -14,6 +14,40 @@ a {
   color: #337AB7;
 }
 
+/* Footer: always side-by-side, wraps on very small screens */
+.list-footer {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  padding-top: 10px;
+}
+
+/* Toolbar: stacked column on mobile, row on desktop */
+.list-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+@media (min-width: 576px) {
+  .list-toolbar {
+    flex-direction: row;
+    justify-content: flex-end;
+  }
+
+  .list-toolbar .ant-select {
+    width: 160px !important;
+  }
+
+  .list-toolbar .ant-input-affix-wrapper,
+  .list-toolbar .ant-btn {
+    width: auto !important;
+  }
+}
+
 @media (min-width: 768px) {
   .auth-image-panel {
     display: block !important;

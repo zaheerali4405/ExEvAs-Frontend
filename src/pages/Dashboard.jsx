@@ -1,16 +1,18 @@
+import { Typography } from 'antd';
 import DashboardLayout from '../layouts/DashboardLayout';
 import { useAuth } from '../context/AuthContext';
-import { decodeToken } from '../utils/jwt';
+
+const { Title, Text } = Typography;
 
 export default function Dashboard() {
-  const { token } = useAuth();
-  const user = decodeToken(token);
+  const { user } = useAuth();
 
   return (
     <DashboardLayout>
-      <h1 className="text-2xl font-bold text-gray-700">
-        Welcome, {user?.email ?? 'User'} to ExEvAs
-      </h1>
+      <Title level={4}>
+        Welcome, {user ? (user.firstName ?? user.email) : '—'} 👋
+      </Title>
+      <Text type="secondary">You are logged into ExEvAs Scheduling Engine.</Text>
     </DashboardLayout>
   );
 }

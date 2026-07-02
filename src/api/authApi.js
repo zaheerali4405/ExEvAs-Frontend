@@ -17,3 +17,6 @@ export const verifyResetCode = (email, code) =>
 
 export const resetPassword = (resetToken, newPassword) =>
   axiosClient.post('/auth/reset-password', { resetToken, newPassword });
+
+export const getMe = () =>
+  axiosClient.get('/auth/me');

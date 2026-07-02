@@ -1,26 +1,31 @@
 import { useState } from 'react';
-import Navbar from '../components/Navbar';
+import { Layout } from 'antd';
 import Sidebar from '../components/Sidebar';
+import Navbar from '../components/Navbar';
+import SubHeader from '../components/SubHeader';
 
-const TABLET_BREAKPOINT = 768;
+const { Content } = Layout;
 
-export default function DashboardLayout({ children }) {
-  const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth >= TABLET_BREAKPOINT);
+export default function DashboardLayout({ children, onAdd }) {
+  const [collapsed, setCollapsed] = useState(window.innerWidth < 768);
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden">
-      <Navbar sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen((s) => !s)} />
+    <Layout style={{ height: '100vh' }}>
+      <Sidebar collapsed={collapsed} />
 
-      <div className="flex flex-1 overflow-hidden">
-        <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-
-        <main
-          className="flex-1 overflow-y-auto p-5"
-          style={{ backgroundColor: 'var(--page-bg-secondary)' }}
+      <Layout>
+        <Navbar collapsed={collapsed} onToggle={() => setCollapsed((c) => !c)} />
+        <SubHeader onAdd={onAdd} />
+        <Content
+          style={{
+            overflow: 'auto',
+            padding: 24,
+            background: '#f5f5f5',
+          }}
         >
           {children}
-        </main>
-      </div>
-    </div>
+        </Content>
+      </Layout>
+    </Layout>
   );
 }
