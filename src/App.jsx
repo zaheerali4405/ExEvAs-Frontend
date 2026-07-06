@@ -20,6 +20,10 @@ import UserDesignationsList from './pages/user-designations/UserDesignationsList
 import ProfilePage from './pages/profile/ProfilePage';
 import ChangePasswordPage from './pages/profile/ChangePasswordPage';
 import SettingsPage from './pages/settings/SettingsPage';
+import VenueCategoriesList from './pages/venue-categories/VenueCategoriesList';
+import VenuesList from './pages/venues/VenuesList';
+import EquipmentList from './pages/equipment/EquipmentList';
+import EventCategoriesList from './pages/event-categories/EventCategoriesList';
 
 function App() {
   return (
@@ -125,6 +129,38 @@ function App() {
             element={
               <ProtectedRoute>
                 <SettingsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/venue-categories"
+            element={
+              <ProtectedRoute>
+                <VenueCategoriesList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/venues"
+            element={
+              <ProtectedRoute>
+                <VenuesList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/equipment"
+            element={
+              <ProtectedRoute>
+                <EquipmentList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/event-categories"
+            element={
+              <ProtectedRoute>
+                <EventCategoriesList />
               </ProtectedRoute>
             }
           />

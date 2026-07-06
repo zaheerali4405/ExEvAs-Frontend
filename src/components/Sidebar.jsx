@@ -32,6 +32,7 @@ const navItems = [
       { key: '/user-designations',  icon: <UserOutlined />,    label: 'User Designations' },
     ],
   },
+  { key: '/venue-categories',   icon: <AppstoreOutlined />,    label: 'Venue Categories' },
   { key: '/venues',             icon: <EnvironmentOutlined />, label: 'Venues' },
   { key: '/equipment',          icon: <ToolOutlined />,        label: 'Equipment' },
   { key: '/event-categories',   icon: <AppstoreOutlined />,    label: 'Event Categories' },
