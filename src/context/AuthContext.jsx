@@ -28,8 +28,10 @@ export function AuthProvider({ children }) {
     setUser(null);
   };
 
+  const updateUser = (patch) => setUser((prev) => prev ? { ...prev, ...patch } : prev);
+
   return (
-    <AuthContext.Provider value={{ token, user, saveToken, logout, isAuthenticated: !!token }}>
+    <AuthContext.Provider value={{ token, user, saveToken, logout, updateUser, isAuthenticated: !!token }}>
       {children}
     </AuthContext.Provider>
   );

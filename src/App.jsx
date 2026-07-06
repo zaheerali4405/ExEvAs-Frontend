@@ -10,6 +10,16 @@ import ResetPassword from "./pages/auth/ResetPassword";
 import Dashboard from "./pages/Dashboard";
 
 import PermissionsList from './pages/permissions/PermissionsList';
+import UsersList from './pages/users/UsersList';
+import DesignationsList from './pages/designations/DesignationsList';
+import RolesList from './pages/roles/RolesList';
+import RolePermissionsList from './pages/role-permissions/RolePermissionsList';
+import DesignationRolesList from './pages/designation-roles/DesignationRolesList';
+import UserRolesList from './pages/user-roles/UserRolesList';
+import UserDesignationsList from './pages/user-designations/UserDesignationsList';
+import ProfilePage from './pages/profile/ProfilePage';
+import ChangePasswordPage from './pages/profile/ChangePasswordPage';
+import SettingsPage from './pages/settings/SettingsPage';
 
 function App() {
   return (
@@ -35,6 +45,86 @@ function App() {
             element={
               <ProtectedRoute>
                 <PermissionsList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/users"
+            element={
+              <ProtectedRoute>
+                <UsersList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/designations"
+            element={
+              <ProtectedRoute>
+                <DesignationsList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/roles"
+            element={
+              <ProtectedRoute>
+                <RolesList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/role-permissions"
+            element={
+              <ProtectedRoute>
+                <RolePermissionsList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/designation-roles"
+            element={
+              <ProtectedRoute>
+                <DesignationRolesList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/user-roles"
+            element={
+              <ProtectedRoute>
+                <UserRolesList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/user-designations"
+            element={
+              <ProtectedRoute>
+                <UserDesignationsList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/profile"
+            element={
+              <ProtectedRoute>
+                <ProfilePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/change-password"
+            element={
+              <ProtectedRoute>
+                <ChangePasswordPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <ProtectedRoute>
+                <SettingsPage />
               </ProtectedRoute>
             }
           />

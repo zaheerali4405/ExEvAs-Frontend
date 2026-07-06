@@ -21,6 +21,8 @@ export default function DashboardLayout({ children, onAdd }) {
             overflow: 'auto',
             padding: 24,
             background: '#f5f5f5',
+            display: 'flex',
+            flexDirection: 'column',
           }}
         >
           {children}

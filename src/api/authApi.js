@@ -20,3 +20,9 @@ export const resetPassword = (resetToken, newPassword) =>
 
 export const getMe = () =>
   axiosClient.get('/auth/me');
+
+export const changePassword = (currentPassword, newPassword) =>
+  axiosClient.patch('/auth/change-password', { currentPassword, newPassword });
+
+export const toggleTwoFa = (twoFaEnabled) =>
+  axiosClient.patch('/auth/2fa', { twoFaEnabled });

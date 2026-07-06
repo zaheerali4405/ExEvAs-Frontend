@@ -14,6 +14,10 @@ const routeConfig = {
   '/equipment':        { title: 'Equipment',         addPath: '/equipment/add' },
   '/event-categories': { title: 'Event Categories',  addPath: '/event-categories/add' },
   '/events':           { title: 'Events',            addPath: '/events/add' },
+  '/role-permissions':  { title: 'Role Permissions',  addPath: null },
+  '/designation-roles': { title: 'Designation Roles', addPath: null },
+  '/user-roles':         { title: 'User Roles',         addPath: null },
+  '/user-designations':  { title: 'User Designations',  addPath: null },
   '/profile':          { title: 'My Profile',        addPath: null },
   '/change-password':  { title: 'Change Password',   addPath: null },
   '/settings':         { title: 'Settings',          addPath: null },
@@ -32,7 +36,11 @@ const segmentLabels = {
   profile:            'My Profile',
   'change-password':  'Change Password',
   settings:           'Settings',
-  add:                'Add New',
+  'role-permissions':  'Role Permissions',
+  'designation-roles': 'Designation Roles',
+  'user-roles':         'User Roles',
+  'user-designations':  'User Designations',
+  add:                 'Add New',
   edit:               'Edit',
 };
 

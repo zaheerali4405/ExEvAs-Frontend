@@ -9,21 +9,33 @@ import {
   ToolOutlined,
   AppstoreOutlined,
   CalendarOutlined,
+  ApartmentOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 
 const { Sider } = Layout;
 
 const navItems = [
-  { key: '/dashboard',       icon: <DashboardOutlined />, label: 'Dashboard' },
-  { key: '/users',           icon: <UserOutlined />,      label: 'Users' },
-  { key: '/designations',    icon: <IdcardOutlined />,    label: 'Designations' },
-  { key: '/roles',           icon: <SafetyOutlined />,    label: 'Roles' },
-  { key: '/permissions',     icon: <LockOutlined />,      label: 'Permissions' },
-  { key: '/venues',          icon: <EnvironmentOutlined />, label: 'Venues' },
-  { key: '/equipment',       icon: <ToolOutlined />,      label: 'Equipment' },
-  { key: '/event-categories',icon: <AppstoreOutlined />,  label: 'Event Categories' },
-  { key: '/events',          icon: <CalendarOutlined />,  label: 'Events' },
+  { key: '/dashboard',          icon: <DashboardOutlined />,   label: 'Dashboard' },
+  { key: '/users',              icon: <UserOutlined />,        label: 'Users' },
+  { key: '/designations',       icon: <IdcardOutlined />,      label: 'Designations' },
+  { key: '/roles',              icon: <SafetyOutlined />,      label: 'Roles' },
+  { key: '/permissions',        icon: <LockOutlined />,        label: 'Permissions' },
+  {
+    key: 'assignments',
+    icon: <ApartmentOutlined />,
+    label: 'Assignments',
+    children: [
+      { key: '/role-permissions',   icon: <SafetyOutlined />,  label: 'Role Permissions' },
+      { key: '/designation-roles',  icon: <IdcardOutlined />,  label: 'Designation Roles' },
+      { key: '/user-roles',         icon: <UserOutlined />,    label: 'User Roles' },
+      { key: '/user-designations',  icon: <UserOutlined />,    label: 'User Designations' },
+    ],
+  },
+  { key: '/venues',             icon: <EnvironmentOutlined />, label: 'Venues' },
+  { key: '/equipment',          icon: <ToolOutlined />,        label: 'Equipment' },
+  { key: '/event-categories',   icon: <AppstoreOutlined />,    label: 'Event Categories' },
+  { key: '/events',             icon: <CalendarOutlined />,    label: 'Events' },
 ];
 
 export default function Sidebar({ collapsed }) {
