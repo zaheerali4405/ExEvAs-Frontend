@@ -5,6 +5,7 @@ import {
 } from "antd";
 import { EditOutlined, DownloadOutlined } from "@ant-design/icons";
 import DashboardLayout from "../../layouts/DashboardLayout";
+import PageCard from "../../components/PageCard";
 import {
   getEventCategories, createEventCategory, updateEventCategory, setEventCategoryStatus,
 } from "../../api/eventCategoriesApi";
@@ -207,7 +208,7 @@ export default function EventCategoriesList() {
         />
       )}
 
-      <div style={{ background: "#ffffff", borderRadius: 8, padding: 20, border: "1px solid #f0f0f0" }}>
+      <PageCard>
         <div className="list-toolbar">
           <Select
             placeholder="Search by"
@@ -266,7 +267,7 @@ export default function EventCategoriesList() {
             />
           </div>
         </div>
-      </div>
+      </PageCard>
 
       <Modal
         title={editingRecord ? "Edit Event Category" : "Add Event Category"}

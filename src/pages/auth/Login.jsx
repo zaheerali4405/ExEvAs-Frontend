@@ -13,6 +13,9 @@ export default function Login() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  const sessionExpired = sessionStorage.getItem('exevas_session_expired') === '1';
+  if (sessionExpired) sessionStorage.removeItem('exevas_session_expired');
+
   const handleFinish = async ({ email, password }) => {
     setError("");
     setLoading(true);
@@ -43,6 +46,15 @@ export default function Login() {
       <Text type="secondary" style={{ display: "block", marginBottom: 20 }}>
         Enter your credentials below to sign in.
       </Text>
+
+      {sessionExpired && (
+        <Alert
+          message="Your session has expired. Please log in again."
+          type="warning"
+          showIcon
+          style={{ marginBottom: 20 }}
+        />
+      )}
 
       {error && (
         <Alert

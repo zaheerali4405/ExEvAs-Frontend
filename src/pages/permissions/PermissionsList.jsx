@@ -4,6 +4,7 @@ import {
 } from "antd";
 import { EditOutlined, DownloadOutlined } from "@ant-design/icons";
 import DashboardLayout from "../../layouts/DashboardLayout";
+import PageCard from "../../components/PageCard";
 import { getPermissions, setPermissionStatus, createPermission, updatePermission } from "../../api/permissionsApi";
 import { exportToExcel } from "../../utils/exportExcel";
 
@@ -208,7 +209,7 @@ export default function PermissionsList() {
         />
       )}
 
-      <div style={{ background: "#ffffff", borderRadius: 8, padding: 20, border: "1px solid #f0f0f0" }}>
+      <PageCard>
         {/* Toolbar — stacks vertically on mobile */}
         <div className="list-toolbar">
           <Select
@@ -273,7 +274,7 @@ export default function PermissionsList() {
             />
           </div>
         </div>
-      </div>
+      </PageCard>
       <Modal
         title={editingRecord ? "Edit Permission" : "Add Permission"}
         open={modalOpen}

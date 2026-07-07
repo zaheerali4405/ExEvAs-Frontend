@@ -1,14 +1,17 @@
 import { useState } from "react";
 import { Switch, Alert, Typography, Divider } from "antd";
-import { SafetyOutlined } from "@ant-design/icons";
+import { SafetyOutlined, BgColorsOutlined } from "@ant-design/icons";
 import DashboardLayout from "../../layouts/DashboardLayout";
+import PageCard from "../../components/PageCard";
 import { toggleTwoFa } from "../../api/authApi";
 import { useAuth } from "../../context/AuthContext";
+import { useTheme } from "../../context/ThemeContext";
 
 const { Title, Text } = Typography;
 
 export default function SettingsPage() {
   const { user, updateUser } = useAuth();
+  const { isDark, toggleTheme } = useTheme();
   const [twoFaLoading, setTwoFaLoading] = useState(false);
   const [twoFaError, setTwoFaError] = useState("");
   const [twoFaSuccess, setTwoFaSuccess] = useState("");
@@ -30,21 +33,47 @@ export default function SettingsPage() {
 
   return (
     <DashboardLayout>
-      <div
-        style={{
-          background: "#ffffff",
-          borderRadius: 8,
-          border: "1px solid #f0f0f0",
-          padding: 24,
-          maxWidth: 560,
-        }}
-      >
+      <PageCard style={{ padding: 24, maxWidth: 560 }}>
         <Title level={5} style={{ marginTop: 0, marginBottom: 4 }}>
           Settings
         </Title>
         <Text type="secondary" style={{ fontSize: 13 }}>
           Manage your account preferences.
         </Text>
+
+        <Divider />
+
+        {/* Appearance section */}
+        <Title level={5} style={{ marginTop: 0, marginBottom: 16, fontSize: 14 }}>
+          <BgColorsOutlined style={{ marginRight: 8, color: "#1AB394" }} />
+          Appearance
+        </Title>
+
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "14px 16px",
+            border: "1px solid #f0f0f0",
+            borderRadius: 6,
+            marginBottom: 24,
+          }}
+        >
+          <div>
+            <Text strong style={{ display: "block" }}>
+              Dark Mode
+            </Text>
+            <Text type="secondary" style={{ fontSize: 13 }}>
+              {isDark ? "Dark mode is on." : "Dark mode is off."}
+            </Text>
+          </div>
+          <Switch
+            checked={isDark}
+            onChange={toggleTheme}
+            style={{ flexShrink: 0, marginLeft: 16 }}
+          />
+        </div>
 
         <Divider />
 
@@ -102,7 +131,7 @@ export default function SettingsPage() {
             style={{ flexShrink: 0, marginLeft: 16 }}
           />
         </div>
-      </div>
+      </PageCard>
     </DashboardLayout>
   );
 }

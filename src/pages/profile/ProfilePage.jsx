@@ -2,6 +2,7 @@ import { Avatar, Descriptions, Tag, Typography } from "antd";
 import { UserOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import DashboardLayout from "../../layouts/DashboardLayout";
+import PageCard from "../../components/PageCard";
 import { useAuth } from "../../context/AuthContext";
 
 const { Title, Text } = Typography;
@@ -58,14 +59,7 @@ export default function ProfilePage() {
 
   return (
     <DashboardLayout>
-      <div
-        style={{
-          background: "#ffffff",
-          borderRadius: 8,
-          border: "1px solid #f0f0f0",
-          overflow: "hidden",
-        }}
-      >
+      <PageCard style={{ overflow: "hidden", padding: 0 }}>
         {/* Header band */}
         <div
           style={{
@@ -103,7 +97,7 @@ export default function ProfilePage() {
             labelStyle={{ fontWeight: 600, width: 160 }}
           />
         </div>
-      </div>
+      </PageCard>
     </DashboardLayout>
   );
 }

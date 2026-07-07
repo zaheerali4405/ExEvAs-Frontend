@@ -11,7 +11,7 @@ export function AuthProvider({ children }) {
     if (token) {
       getMe()
         .then(({ data }) => setUser(data))
-        .catch(() => {});
+        .catch(() => logout());
     } else {
       setUser(null);
     }
@@ -20,6 +20,7 @@ export function AuthProvider({ children }) {
   const saveToken = (accessToken) => {
     localStorage.setItem('exevas_token', accessToken);
     setToken(accessToken);
+    window.dispatchEvent(new Event('exevas_login'));
   };
 
   const logout = () => {

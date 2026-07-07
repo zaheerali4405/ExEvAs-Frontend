@@ -1,3 +1,26 @@
+/* ── Design tokens ──────────────────────────────────────────────────────────
+   These are the canonical default values.
+   At runtime ThemeContext overrides them via document.documentElement.style
+   when system settings are loaded from the API.
+   ─────────────────────────────────────────────────────────────────────────── */
+:root {
+  /* Brand */
+  --brand-color:   #1AB394;
+  --link-color:    #337AB7;
+
+  /* Light mode */
+  --page-primary:   #ffffff;
+  --page-secondary: #f5f5f5;
+  --text-primary:   rgba(0, 0, 0, 0.88);    /* AntD colorText light */
+  --text-heading:   rgba(0, 0, 0, 0.88);    /* AntD colorTextHeading light */
+
+  /* Dark mode (applied via JS — see ThemeContext) */
+  --page-primary-dark:   #1f1f1f;
+  --page-secondary-dark: #141414;
+  --text-primary-dark:   rgba(255, 255, 255, 0.85); /* AntD colorText dark */
+  --text-heading-dark:   rgba(255, 255, 255, 0.88); /* AntD colorTextHeading dark */
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
 }
@@ -7,7 +30,7 @@ html, body {
   padding: 0;
   overflow: hidden;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  background-color: #f5f5f5;
+  background-color: var(--page-secondary);
 }
 
 a {

@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { Table, Select, Alert, Checkbox, Tag, Typography, Spin, Tooltip } from "antd";
 import { StarFilled, StarOutlined } from "@ant-design/icons";
 import DashboardLayout from "../../layouts/DashboardLayout";
+import PageCard from "../../components/PageCard";
 import {
   getUserDesignations,
   assignDesignationToUser,
@@ -216,14 +217,7 @@ export default function UserDesignationsList() {
         />
       )}
 
-      <div
-        style={{
-          background: "#ffffff",
-          borderRadius: 8,
-          padding: 20,
-          border: "1px solid #f0f0f0",
-        }}
-      >
+      <PageCard>
         {/* User selector */}
         <div style={{ marginBottom: 20 }}>
           <Text strong style={{ display: "block", marginBottom: 6 }}>
@@ -256,7 +250,7 @@ export default function UserDesignationsList() {
             locale={{ emptyText: "No designations found." }}
           />
         </div>
-      </div>
+      </PageCard>
     </DashboardLayout>
   );
 }

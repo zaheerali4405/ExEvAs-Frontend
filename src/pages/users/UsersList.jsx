@@ -7,6 +7,7 @@ import { EditOutlined, DownloadOutlined, EyeOutlined, ApartmentOutlined, IdcardO
 import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import DashboardLayout from "../../layouts/DashboardLayout";
+import PageCard from "../../components/PageCard";
 import { getUsers, createUser, updateUser, setUserStatus, setUserLockStatus } from "../../api/usersApi";
 import { exportToExcel } from "../../utils/exportExcel";
 
@@ -304,7 +305,7 @@ export default function UsersList() {
         />
       )}
 
-      <div style={{ background: "#ffffff", borderRadius: 8, padding: 20, border: "1px solid #f0f0f0" }}>
+      <PageCard>
         <div className="list-toolbar">
           <Select
             placeholder="Search by"
@@ -364,7 +365,7 @@ export default function UsersList() {
             />
           </div>
         </div>
-      </div>
+      </PageCard>
 
       {/* Add / Edit Modal */}
       <Modal

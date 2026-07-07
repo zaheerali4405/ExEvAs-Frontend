@@ -5,6 +5,7 @@ import {
 } from "antd";
 import { EditOutlined, DownloadOutlined } from "@ant-design/icons";
 import DashboardLayout from "../../layouts/DashboardLayout";
+import PageCard from "../../components/PageCard";
 import { getVenues, createVenue, updateVenue, setVenueStatus } from "../../api/venuesApi";
 import { getVenueCategories } from "../../api/venueCategoriesApi";
 import { exportToExcel } from "../../utils/exportExcel";
@@ -232,7 +233,7 @@ export default function VenuesList() {
         />
       )}
 
-      <div style={{ background: "#ffffff", borderRadius: 8, padding: 20, border: "1px solid #f0f0f0" }}>
+      <PageCard>
         <div className="list-toolbar">
           <Select
             placeholder="Search by"
@@ -291,7 +292,7 @@ export default function VenuesList() {
             />
           </div>
         </div>
-      </div>
+      </PageCard>
 
       <Modal
         title={editingRecord ? "Edit Venue" : "Add Venue"}

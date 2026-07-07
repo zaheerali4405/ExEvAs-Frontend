@@ -24,6 +24,7 @@ import VenueCategoriesList from './pages/venue-categories/VenueCategoriesList';
 import VenuesList from './pages/venues/VenuesList';
 import EquipmentList from './pages/equipment/EquipmentList';
 import EventCategoriesList from './pages/event-categories/EventCategoriesList';
+import SystemSettingsPage from './pages/system-settings/SystemSettingsPage';
 
 function App() {
   return (
@@ -161,6 +162,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <EventCategoriesList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/system-settings"
+            element={
+              <ProtectedRoute>
+                <SystemSettingsPage />
               </ProtectedRoute>
             }
           />

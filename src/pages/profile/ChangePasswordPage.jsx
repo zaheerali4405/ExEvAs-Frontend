@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Form, Input, Button, Alert, Typography } from "antd";
 import { LockOutlined } from "@ant-design/icons";
 import DashboardLayout from "../../layouts/DashboardLayout";
+import PageCard from "../../components/PageCard";
 import { changePassword } from "../../api/authApi";
 
 const { Title, Text } = Typography;
@@ -37,16 +38,7 @@ export default function ChangePasswordPage() {
           alignItems: "center",
         }}
       >
-      <div
-        style={{
-          background: "#ffffff",
-          borderRadius: 8,
-          border: "1px solid #f0f0f0",
-          padding: 24,
-          width: "100%",
-          maxWidth: 480,
-        }}
-      >
+      <PageCard style={{ padding: 24, width: "100%", maxWidth: 480 }}>
         <Title level={5} style={{ marginTop: 0, marginBottom: 4 }}>
           Change Password
         </Title>
@@ -125,7 +117,7 @@ export default function ChangePasswordPage() {
             </Button>
           </Form.Item>
         </Form>
-      </div>
+      </PageCard>
       </div>
     </DashboardLayout>
   );

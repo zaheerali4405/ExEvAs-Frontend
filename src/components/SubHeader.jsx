@@ -1,4 +1,4 @@
-import { Breadcrumb, Button, Typography } from 'antd';
+import { Breadcrumb, Button, Typography, theme } from 'antd';
 import { PlusOutlined, HomeOutlined } from '@ant-design/icons';
 import { useLocation, Link } from 'react-router-dom';
 
@@ -22,6 +22,7 @@ const routeConfig = {
   '/profile':          { title: 'My Profile',        addPath: null },
   '/change-password':  { title: 'Change Password',   addPath: null },
   '/settings':         { title: 'Settings',          addPath: null },
+  '/system-settings':  { title: 'System Settings',   addPath: null },
 };
 
 const segmentLabels = {
@@ -38,6 +39,7 @@ const segmentLabels = {
   profile:            'My Profile',
   'change-password':  'Change Password',
   settings:           'Settings',
+  'system-settings':  'System Settings',
   'role-permissions':  'Role Permissions',
   'designation-roles': 'Designation Roles',
   'user-roles':         'User Roles',
@@ -48,6 +50,7 @@ const segmentLabels = {
 
 export default function SubHeader({ onAdd }) {
   const location = useLocation();
+  const { token } = theme.useToken();
 
   // Find the best matching route config (longest prefix match)
   const configKey = Object.keys(routeConfig)
@@ -79,8 +82,8 @@ export default function SubHeader({ onAdd }) {
   return (
     <div
       style={{
-        background: '#ffffff',
-        borderBottom: '1px solid #f0f0f0',
+        background: token.colorBgContainer,
+        borderBottom: `1px solid ${token.colorBorderSecondary}`,
         padding: '10px 24px',
         display: 'flex',
         alignItems: 'center',

@@ -1,4 +1,4 @@
-import { Layout, Menu } from 'antd';
+import { Layout, Menu, theme } from 'antd';
 import {
   DashboardOutlined,
   UserOutlined,
@@ -10,6 +10,7 @@ import {
   AppstoreOutlined,
   CalendarOutlined,
   ApartmentOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 
@@ -37,11 +38,13 @@ const navItems = [
   { key: '/equipment',          icon: <ToolOutlined />,        label: 'Equipment' },
   { key: '/event-categories',   icon: <AppstoreOutlined />,    label: 'Event Categories' },
   { key: '/events',             icon: <CalendarOutlined />,    label: 'Events' },
+  { key: '/system-settings',   icon: <SettingOutlined />,     label: 'System Settings' },
 ];
 
 export default function Sidebar({ collapsed }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const { token } = theme.useToken();
 
   const selectedKey = navItems
     .map((i) => i.key)
@@ -58,8 +61,8 @@ export default function Sidebar({ collapsed }) {
         position: 'sticky',
         top: 0,
         overflow: 'auto',
-        background: '#ffffff',
-        borderRight: '1px solid #f0f0f0',
+        background: token.colorBgContainer,
+        borderRight: `1px solid ${token.colorBorderSecondary}`,
       }}
     >
       {/* Logo area */}
@@ -71,7 +74,7 @@ export default function Sidebar({ collapsed }) {
           justifyContent: collapsed ? 'center' : 'flex-start',
           gap: 10,
           padding: collapsed ? 0 : '0 16px',
-          borderBottom: '1px solid #f0f0f0',
+          borderBottom: `1px solid ${token.colorBorderSecondary}`,
           overflow: 'hidden',
           whiteSpace: 'nowrap',
         }}

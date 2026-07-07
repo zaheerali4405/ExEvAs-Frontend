@@ -1,8 +1,9 @@
-import { Typography } from 'antd';
+import { Typography, theme } from 'antd';
 
 const { Title } = Typography;
 
 export default function AuthLayout({ children }) {
+  const { token } = theme.useToken();
   return (
     <div style={{ display: 'flex', width: '100%', height: '100vh' }}>
       {/* Left panel — image */}
@@ -24,7 +25,7 @@ export default function AuthLayout({ children }) {
           alignItems: 'center',
           justifyContent: 'center',
           padding: '0 40px',
-          backgroundColor: '#ffffff',
+          backgroundColor: token.colorBgContainer,
         }}
       >
         <div style={{ width: '100%', maxWidth: 360 }}>

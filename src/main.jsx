@@ -1,30 +1,44 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ConfigProvider, App as AntApp } from 'antd';
+import { ConfigProvider, App as AntApp, theme as antTheme } from 'antd';
 import './index.css';
 import App from './App.jsx';
+import { ThemeProvider, useTheme } from './context/ThemeContext.jsx';
 
-const theme = {
-  token: {
-    colorPrimary: '#1AB394',
-    colorLink: '#337AB7',
-    borderRadius: 6,
-    fontFamily: 'inherit',
-  },
-  components: {
-    Button: {
-      colorPrimary: '#1AB394',
-      algorithm: true,
+function Root() {
+  const { isDark, colors } = useTheme();
+
+  const theme = {
+    algorithm: isDark ? antTheme.darkAlgorithm : antTheme.defaultAlgorithm,
+    token: {
+      colorPrimary:     colors.brandColor,
+      colorLink:        '#337AB7',
+      colorBgContainer: isDark ? colors.darkPrimaryBg  : colors.lightPrimaryBg,
+      colorBgLayout:    isDark ? colors.darkSecondaryBg : colors.lightSecondaryBg,
+      borderRadius: 6,
+      fontFamily: 'inherit',
     },
-  },
-};
+    components: {
+      Button: {
+        colorPrimary: colors.brandColor,
+        algorithm: true,
+      },
+    },
+  };
 
-createRoot(document.getElementById('root')).render(
-  <StrictMode>
+  return (
     <ConfigProvider theme={theme}>
       <AntApp>
         <App />
       </AntApp>
     </ConfigProvider>
+  );
+}
+
+createRoot(document.getElementById('root')).render(
+  <StrictMode>
+    <ThemeProvider>
+      <Root />
+    </ThemeProvider>
   </StrictMode>,
 );

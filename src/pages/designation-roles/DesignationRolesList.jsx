@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Table, Select, Alert, Checkbox, Tag, Typography, Spin } from "antd";
 import DashboardLayout from "../../layouts/DashboardLayout";
+import PageCard from "../../components/PageCard";
 import {
   getDesignationRoles,
   assignRoleToDesignation,
@@ -158,14 +159,7 @@ export default function DesignationRolesList() {
         />
       )}
 
-      <div
-        style={{
-          background: "#ffffff",
-          borderRadius: 8,
-          padding: 20,
-          border: "1px solid #f0f0f0",
-        }}
-      >
+      <PageCard>
         {/* Designation selector */}
         <div style={{ marginBottom: 20 }}>
           <Text strong style={{ display: "block", marginBottom: 6 }}>
@@ -198,7 +192,7 @@ export default function DesignationRolesList() {
             locale={{ emptyText: "No roles found." }}
           />
         </div>
-      </div>
+      </PageCard>
     </DashboardLayout>
   );
 }

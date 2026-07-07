@@ -6,6 +6,7 @@ import {
 import { EditOutlined, DownloadOutlined, ApartmentOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import DashboardLayout from "../../layouts/DashboardLayout";
+import PageCard from "../../components/PageCard";
 import { getDesignations, createDesignation, updateDesignation, setDesignationStatus } from "../../api/designationsApi";
 import { exportToExcel } from "../../utils/exportExcel";
 
@@ -219,7 +220,7 @@ export default function DesignationsList() {
         />
       )}
 
-      <div style={{ background: "#ffffff", borderRadius: 8, padding: 20, border: "1px solid #f0f0f0" }}>
+      <PageCard>
         <div className="list-toolbar">
           <Select
             placeholder="Search by"
@@ -279,7 +280,7 @@ export default function DesignationsList() {
             />
           </div>
         </div>
-      </div>
+      </PageCard>
 
       <Modal
         title={editingRecord ? "Edit Designation" : "Add Designation"}
