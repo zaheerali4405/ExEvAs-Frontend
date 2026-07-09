@@ -76,3 +76,16 @@ a {
     display: block !important;
   }
 }
+
+/* Assignment page selectors (User Roles, User Designations, Designation Roles,
+   Role Permissions): showSearch renders a text input, which defaults to a text
+   caret. Force a pointer cursor since the primary interaction is selecting an
+   option, not typing.
+   No !important here: AntD v6 wraps its own component styles in a CSS @layer,
+   and per the cascade layers spec, unlayered normal-priority rules already
+   beat layered ones — but for !important rules that priority reverses, so
+   adding !important here would actually lose to AntD's layered rule. */
+.assignment-select .ant-select-selector,
+.assignment-select .ant-select-input {
+  cursor: pointer;
+}

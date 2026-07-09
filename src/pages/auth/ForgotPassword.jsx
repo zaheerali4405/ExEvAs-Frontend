@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { Form, Input, Button, Radio, Alert, Typography } from "antd";
+import { Form, Input, Button, Alert, Typography } from "antd";
 import { MailOutlined } from "@ant-design/icons";
 import AuthLayout from "../../layouts/AuthLayout";
 import { forgotPassword } from "../../api/authApi";
@@ -12,11 +12,11 @@ export default function ForgotPassword() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleFinish = async ({ email, channel }) => {
+  const handleFinish = async ({ email }) => {
     setError("");
     setLoading(true);
     try {
-      await forgotPassword(email, channel);
+      await forgotPassword(email);
       navigate("/verify-reset-code", { state: { email } });
     } catch (err) {
       setError(
@@ -33,7 +33,7 @@ export default function ForgotPassword() {
         Forgot Password
       </Title>
       <Text type="secondary" style={{ display: "block", marginBottom: 20 }}>
-        Enter your email and choose where to receive your reset code.
+        Enter your email to receive a password reset code.
       </Text>
 
       {error && (
@@ -52,7 +52,6 @@ export default function ForgotPassword() {
         onFinish={handleFinish}
         requiredMark={false}
         size="large"
-        initialValues={{ channel: "email" }}
       >
         <Form.Item
           name="email"
@@ -66,17 +65,6 @@ export default function ForgotPassword() {
             placeholder="Enter Email"
             autoComplete="email"
           />
-        </Form.Item>
-
-        <Form.Item name="channel">
-          <Radio.Group style={{ width: "100%" }}>
-            <Radio.Button value="email" style={{ width: "50%", textAlign: "center" }}>
-              Email
-            </Radio.Button>
-            <Radio.Button value="phone" style={{ width: "50%", textAlign: "center" }}>
-              Phone
-            </Radio.Button>
-          </Radio.Group>
         </Form.Item>
 
         <Form.Item>

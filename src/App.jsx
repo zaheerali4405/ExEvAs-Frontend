@@ -2,7 +2,6 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Login from "./pages/auth/Login";
-import TwoFaChannel from "./pages/auth/TwoFaChannel";
 import TwoFaCode from "./pages/auth/TwoFaCode";
 import ForgotPassword from "./pages/auth/ForgotPassword";
 import VerifyResetCode from "./pages/auth/VerifyResetCode";
@@ -32,7 +31,6 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Login />} />
-          <Route path="/2FA-Channel" element={<TwoFaChannel />} />
           <Route path="/2FA-Code" element={<TwoFaCode />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/verify-reset-code" element={<VerifyResetCode />} />
@@ -48,7 +46,7 @@ function App() {
           <Route
             path="/permissions"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute permission="permission.read-all">
                 <PermissionsList />
               </ProtectedRoute>
             }
@@ -56,7 +54,7 @@ function App() {
           <Route
             path="/users"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute permission="user.read-all">
                 <UsersList />
               </ProtectedRoute>
             }
@@ -64,7 +62,7 @@ function App() {
           <Route
             path="/designations"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute permission="designation.read-all">
                 <DesignationsList />
               </ProtectedRoute>
             }
@@ -72,7 +70,7 @@ function App() {
           <Route
             path="/roles"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute permission="role.read-all">
                 <RolesList />
               </ProtectedRoute>
             }
@@ -80,7 +78,7 @@ function App() {
           <Route
             path="/role-permissions"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute permission="role-permission.read-all">
                 <RolePermissionsList />
               </ProtectedRoute>
             }
@@ -88,7 +86,7 @@ function App() {
           <Route
             path="/designation-roles"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute permission="designation-role.read-all">
                 <DesignationRolesList />
               </ProtectedRoute>
             }
@@ -96,7 +94,7 @@ function App() {
           <Route
             path="/user-roles"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute permission="user-role.read-all">
                 <UserRolesList />
               </ProtectedRoute>
             }
@@ -104,7 +102,7 @@ function App() {
           <Route
             path="/user-designations"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute permission="user-designation.read-all">
                 <UserDesignationsList />
               </ProtectedRoute>
             }
@@ -136,7 +134,7 @@ function App() {
           <Route
             path="/venue-categories"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute permission="venue-category.read-all">
                 <VenueCategoriesList />
               </ProtectedRoute>
             }
@@ -144,7 +142,7 @@ function App() {
           <Route
             path="/venues"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute permission="venue.read-all">
                 <VenuesList />
               </ProtectedRoute>
             }
@@ -152,7 +150,7 @@ function App() {
           <Route
             path="/equipment"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute permission="equipment.read-all">
                 <EquipmentList />
               </ProtectedRoute>
             }
@@ -160,7 +158,7 @@ function App() {
           <Route
             path="/event-categories"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute permission="event-category.read-all">
                 <EventCategoriesList />
               </ProtectedRoute>
             }
@@ -168,7 +166,7 @@ function App() {
           <Route
             path="/system-settings"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute permission="system-settings.read">
                 <SystemSettingsPage />
               </ProtectedRoute>
             }

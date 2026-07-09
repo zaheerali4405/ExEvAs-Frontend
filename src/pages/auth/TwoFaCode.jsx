@@ -11,7 +11,7 @@ export default function TwoFaCode() {
   const navigate = useNavigate();
   const location = useLocation();
   const { saveToken } = useAuth();
-  const { email, password, channel, userId } = location.state || {};
+  const { email, password, userId } = location.state || {};
 
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -40,8 +40,15 @@ export default function TwoFaCode() {
         Enter Code
       </Title>
       <Text type="secondary" style={{ display: "block", marginBottom: 20 }}>
-        Enter the 6-digit code sent via {channel}. It is valid for 5 minutes.
+        Enter the 6-digit code sent to your email. It is valid for 5 minutes.
       </Text>
+
+      <Alert
+        message="Two-factor authentication is enabled for your account. Please check your email for the verification code and enter it below to login."
+        type="info"
+        showIcon
+        style={{ marginBottom: 20 }}
+      />
 
       {error && (
         <Alert

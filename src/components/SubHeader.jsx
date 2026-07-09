@@ -77,7 +77,7 @@ export default function SubHeader({ onAdd }) {
 
   // Only show Add button on exact resource list pages
   const isListPage = Object.keys(routeConfig).includes(location.pathname);
-  const showAdd = isListPage && config.addPath;
+  const showAdd = isListPage && config.addPath && !!onAdd;
 
   return (
     <div

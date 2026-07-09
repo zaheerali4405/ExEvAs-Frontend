@@ -10,6 +10,7 @@ import {
 } from "../../api/rolePermissionsApi";
 import { getRoles } from "../../api/rolesApi";
 import { getPermissions } from "../../api/permissionsApi";
+import { useAuth } from "../../context/AuthContext";
 
 const { Text } = Typography;
 
@@ -52,6 +53,7 @@ const RESOURCE_ORDER = Object.keys(RESOURCE_LABELS);
 
 export default function RolePermissionsList() {
   const [searchParams] = useSearchParams();
+  const { can } = useAuth();
 
   const [roles, setRoles] = useState([]);
   const [allPermissions, setAllPermissions] = useState([]);
@@ -194,10 +196,14 @@ export default function RolePermissionsList() {
 
         if (isToggling) return <Spin size="small" />;
 
+        const canToggle = isChecked
+          ? can("role-permission.unassign")
+          : can("role-permission.assign");
+
         return (
           <Checkbox
             checked={isChecked}
-            disabled={!selectedRoleId}
+            disabled={!selectedRoleId || !canToggle}
             onChange={(e) => handleToggle(perm.id, e.target.checked)}
           />
         );
@@ -205,7 +211,7 @@ export default function RolePermissionsList() {
     }));
 
     return [resourceCol, ...actionCols];
-  }, [actions, permissionMap, assignedIds, togglingIds, selectedRoleId]);
+  }, [actions, permissionMap, assignedIds, togglingIds, selectedRoleId, can]);
 
   return (
     <DashboardLayout>
@@ -227,6 +233,7 @@ export default function RolePermissionsList() {
             Select Role
           </Text>
           <Select
+            className="assignment-select"
             placeholder="Select a role to manage its permissions"
             loading={loadingBase}
             options={roles.map((r) => ({ value: r.id, label: r.name }))}

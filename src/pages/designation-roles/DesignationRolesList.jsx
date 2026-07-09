@@ -10,11 +10,13 @@ import {
 } from "../../api/designationRolesApi";
 import { getDesignations } from "../../api/designationsApi";
 import { getRoles } from "../../api/rolesApi";
+import { useAuth } from "../../context/AuthContext";
 
 const { Text } = Typography;
 
 export default function DesignationRolesList() {
   const [searchParams] = useSearchParams();
+  const { can } = useAuth();
 
   const [designations, setDesignations] = useState([]);
   const [allRoles, setAllRoles] = useState([]);
@@ -135,10 +137,14 @@ export default function DesignationRolesList() {
 
         if (isToggling) return <Spin size="small" />;
 
+        const canToggle = isChecked
+          ? can("designation-role.unassign")
+          : can("designation-role.assign");
+
         return (
           <Checkbox
             checked={isChecked}
-            disabled={!selectedDesignationId}
+            disabled={!selectedDesignationId || !canToggle}
             onChange={(e) => handleToggle(record.id, e.target.checked)}
           />
         );
@@ -166,6 +172,7 @@ export default function DesignationRolesList() {
             Select Designation
           </Text>
           <Select
+            className="assignment-select"
             placeholder="Select a designation to manage its roles"
             loading={loadingBase}
             options={designations.map((d) => ({ value: d.id, label: d.name }))}

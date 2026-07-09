@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { Layout, Menu, theme } from 'antd';
 import {
   DashboardOutlined,
@@ -13,40 +14,60 @@ import {
   SettingOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 
 const { Sider } = Layout;
 
 const navItems = [
   { key: '/dashboard',          icon: <DashboardOutlined />,   label: 'Dashboard' },
-  { key: '/users',              icon: <UserOutlined />,        label: 'Users' },
-  { key: '/designations',       icon: <IdcardOutlined />,      label: 'Designations' },
-  { key: '/roles',              icon: <SafetyOutlined />,      label: 'Roles' },
-  { key: '/permissions',        icon: <LockOutlined />,        label: 'Permissions' },
+  { key: '/users',              icon: <UserOutlined />,        label: 'Users',              permission: 'user.read-all' },
+  { key: '/designations',       icon: <IdcardOutlined />,      label: 'Designations',       permission: 'designation.read-all' },
+  { key: '/roles',              icon: <SafetyOutlined />,      label: 'Roles',              permission: 'role.read-all' },
+  { key: '/permissions',        icon: <LockOutlined />,        label: 'Permissions',        permission: 'permission.read-all' },
   {
     key: 'assignments',
     icon: <ApartmentOutlined />,
     label: 'Assignments',
     children: [
-      { key: '/role-permissions',   icon: <SafetyOutlined />,  label: 'Role Permissions' },
-      { key: '/designation-roles',  icon: <IdcardOutlined />,  label: 'Designation Roles' },
-      { key: '/user-roles',         icon: <UserOutlined />,    label: 'User Roles' },
-      { key: '/user-designations',  icon: <UserOutlined />,    label: 'User Designations' },
+      { key: '/role-permissions',   icon: <SafetyOutlined />,  label: 'Role Permissions',   permission: 'role-permission.read-all' },
+      { key: '/designation-roles',  icon: <IdcardOutlined />,  label: 'Designation Roles',  permission: 'designation-role.read-all' },
+      { key: '/user-roles',         icon: <UserOutlined />,    label: 'User Roles',         permission: 'user-role.read-all' },
+      { key: '/user-designations',  icon: <UserOutlined />,    label: 'User Designations',  permission: 'user-designation.read-all' },
     ],
   },
-  { key: '/venue-categories',   icon: <AppstoreOutlined />,    label: 'Venue Categories' },
-  { key: '/venues',             icon: <EnvironmentOutlined />, label: 'Venues' },
-  { key: '/equipment',          icon: <ToolOutlined />,        label: 'Equipment' },
-  { key: '/event-categories',   icon: <AppstoreOutlined />,    label: 'Event Categories' },
-  { key: '/events',             icon: <CalendarOutlined />,    label: 'Events' },
-  { key: '/system-settings',   icon: <SettingOutlined />,     label: 'System Settings' },
+  { key: '/venue-categories',   icon: <AppstoreOutlined />,    label: 'Venue Categories',   permission: 'venue-category.read-all' },
+  { key: '/venues',             icon: <EnvironmentOutlined />, label: 'Venues',              permission: 'venue.read-all' },
+  { key: '/equipment',          icon: <ToolOutlined />,        label: 'Equipment',          permission: 'equipment.read-all' },
+  { key: '/event-categories',   icon: <AppstoreOutlined />,    label: 'Event Categories',   permission: 'event-category.read-all' },
+  { key: '/events',             icon: <CalendarOutlined />,    label: 'Events',             permission: 'event.read-all' },
+  { key: '/system-settings',   icon: <SettingOutlined />,     label: 'System Settings',     permission: 'system-settings.read' },
 ];
 
 export default function Sidebar({ collapsed }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { token } = theme.useToken();
+  const { can } = useAuth();
 
-  const selectedKey = navItems
+  const visibleNavItems = useMemo(() => {
+    const stripPermission = (item) => {
+      const rest = { ...item };
+      delete rest.permission;
+      return rest;
+    };
+    return navItems
+      .map((item) => {
+        if (item.children) {
+          const children = item.children.filter((c) => !c.permission || can(c.permission)).map(stripPermission);
+          return children.length ? { ...stripPermission(item), children } : null;
+        }
+        return !item.permission || can(item.permission) ? stripPermission(item) : null;
+      })
+      .filter(Boolean);
+  }, [can]);
+
+  const selectedKey = visibleNavItems
+    .flatMap((i) => (i.children ? i.children : [i]))
     .map((i) => i.key)
     .filter((k) => location.pathname === k || location.pathname.startsWith(k + '/'))
     .sort((a, b) => b.length - a.length)[0];
@@ -91,7 +112,7 @@ export default function Sidebar({ collapsed }) {
         mode="inline"
         selectedKeys={[selectedKey]}
         inlineCollapsed={collapsed}
-        items={navItems}
+        items={visibleNavItems}
         onClick={({ key }) => navigate(key)}
         style={{ borderRight: 'none', marginTop: 8 }}
       />

@@ -3,7 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { Form, Input, Button, Checkbox, Alert, Typography } from "antd";
 import { MailOutlined, LockOutlined } from "@ant-design/icons";
 import AuthLayout from "../../layouts/AuthLayout";
-import { login } from "../../api/authApi";
+import { login, send2faCode } from "../../api/authApi";
 import { useAuth } from "../../context/AuthContext";
 const { Title, Text } = Typography;
 
@@ -22,9 +22,8 @@ export default function Login() {
     try {
       const { data } = await login(email, password);
       if (data.requiresTwoFa) {
-        navigate("/2FA-Channel", {
-          state: { email, password, userId: data.userId },
-        });
+        await send2faCode(email, password);
+        navigate("/2FA-Code", { state: { email, password, userId: data.userId } });
       } else {
         saveToken(data.accessToken);
         navigate("/dashboard");

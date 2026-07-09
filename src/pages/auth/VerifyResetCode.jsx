@@ -40,6 +40,13 @@ export default function VerifyResetCode() {
         Enter the 6-digit code sent to you. It is valid for 5 minutes.
       </Text>
 
+      <Alert
+        message="If an account with this email exists, a reset code has been sent to it."
+        type="info"
+        showIcon
+        style={{ marginBottom: 20 }}
+      />
+
       {error && (
         <Alert
           message={error}

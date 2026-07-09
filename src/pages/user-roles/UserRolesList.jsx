@@ -6,11 +6,13 @@ import PageCard from "../../components/PageCard";
 import { getUserRoles, assignRoleToUser, unassignRoleFromUser } from "../../api/userRolesApi";
 import { getUsers } from "../../api/usersApi";
 import { getRoles } from "../../api/rolesApi";
+import { useAuth } from "../../context/AuthContext";
 
 const { Text } = Typography;
 
 export default function UserRolesList() {
   const [searchParams] = useSearchParams();
+  const { can } = useAuth();
 
   const [users, setUsers] = useState([]);
   const [allRoles, setAllRoles] = useState([]);
@@ -129,10 +131,14 @@ export default function UserRolesList() {
 
         if (isToggling) return <Spin size="small" />;
 
+        const canToggle = isChecked
+          ? can("user-role.unassign")
+          : can("user-role.assign");
+
         return (
           <Checkbox
             checked={isChecked}
-            disabled={!selectedUserId}
+            disabled={!selectedUserId || !canToggle}
             onChange={(e) => handleToggle(record.id, e.target.checked)}
           />
         );
@@ -144,7 +150,7 @@ export default function UserRolesList() {
     () =>
       users.map((u) => ({
         value: u.id,
-        label: `${u.firstName} ${u.lastName} (${u.username})`,
+        label: `${[u.firstName, u.lastName].filter(Boolean).join(" ")} (${u.username})`,
       })),
     [users]
   );
@@ -169,6 +175,7 @@ export default function UserRolesList() {
             Select User
           </Text>
           <Select
+            className="assignment-select"
             placeholder="Select a user to manage their roles"
             loading={loadingBase}
             options={userOptions}

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { getMe } from '../api/authApi';
 
 const AuthContext = createContext(null);
@@ -6,14 +6,18 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [token, setToken] = useState(localStorage.getItem('exevas_token'));
   const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(!!localStorage.getItem('exevas_token'));
 
   useEffect(() => {
     if (token) {
+      setLoading(true);
       getMe()
         .then(({ data }) => setUser(data))
-        .catch(() => logout());
+        .catch(() => logout())
+        .finally(() => setLoading(false));
     } else {
       setUser(null);
+      setLoading(false);
     }
   }, [token]);
 
@@ -31,8 +35,13 @@ export function AuthProvider({ children }) {
 
   const updateUser = (patch) => setUser((prev) => prev ? { ...prev, ...patch } : prev);
 
+  const can = useCallback(
+    (permissionKey) => !!user?.permissions?.includes(permissionKey),
+    [user]
+  );
+
   return (
-    <AuthContext.Provider value={{ token, user, saveToken, logout, updateUser, isAuthenticated: !!token }}>
+    <AuthContext.Provider value={{ token, user, saveToken, logout, updateUser, can, loading, isAuthenticated: !!token }}>
       {children}
     </AuthContext.Provider>
   );

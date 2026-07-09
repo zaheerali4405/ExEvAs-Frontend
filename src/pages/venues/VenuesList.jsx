@@ -9,6 +9,7 @@ import PageCard from "../../components/PageCard";
 import { getVenues, createVenue, updateVenue, setVenueStatus } from "../../api/venuesApi";
 import { getVenueCategories } from "../../api/venueCategoriesApi";
 import { exportToExcel } from "../../utils/exportExcel";
+import { useAuth } from "../../context/AuthContext";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -37,6 +38,7 @@ function useIsMobile(breakpoint = 576) {
 
 export default function VenuesList() {
   const isMobile = useIsMobile();
+  const { can } = useAuth();
   const [venues, setVenues] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -55,15 +57,27 @@ export default function VenuesList() {
       setLoading(true);
       setError("");
       try {
-        const [venuesRes, catsRes] = await Promise.all([getVenues(), getVenueCategories()]);
-        setVenues(venuesRes.data);
-        setCategories(catsRes.data);
+        const { data } = await getVenues();
+        setVenues(data);
       } catch (err) {
         setError(err.response?.data?.message || "Could not load venues.");
       } finally {
         setLoading(false);
       }
+
+      // Only needed for the Add/Edit modal's category dropdown — a venue's
+      // category is already embedded in each venue record, so a user without
+      // venue-category.read-all can still view the list without this.
+      if (can("venue-category.read-all")) {
+        try {
+          const { data } = await getVenueCategories();
+          setCategories(data);
+        } catch {
+          // Non-fatal: the category dropdown just stays empty.
+        }
+      }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filtered = useMemo(() => {
@@ -191,15 +205,20 @@ export default function VenuesList() {
       dataIndex: "isActive",
       width: 110,
       sorter: (a, b) => Number(b.isActive) - Number(a.isActive),
-      render: (isActive, record) => (
-        <Tag
-          color={isActive ? "success" : "default"}
-          style={{ cursor: "pointer" }}
-          onClick={() => handleToggle(record)}
-        >
-          {isActive ? "Active" : "Inactive"}
-        </Tag>
-      ),
+      render: (isActive, record) =>
+        can("venue.activate") ? (
+          <Tag
+            color={isActive ? "success" : "default"}
+            style={{ cursor: "pointer" }}
+            onClick={() => handleToggle(record)}
+          >
+            {isActive ? "Active" : "Inactive"}
+          </Tag>
+        ) : (
+          <Tag color={isActive ? "success" : "default"}>
+            {isActive ? "Active" : "Inactive"}
+          </Tag>
+        ),
     },
     {
       title: "Actions",
@@ -207,9 +226,11 @@ export default function VenuesList() {
       align: "center",
       render: (_, record) => (
         <Space>
-          <Tooltip title="Edit">
-            <Button size="small" icon={<EditOutlined />} onClick={() => openEditModal(record)} />
-          </Tooltip>
+          {can("venue.update") && (
+            <Tooltip title="Edit">
+              <Button size="small" icon={<EditOutlined />} onClick={() => openEditModal(record)} />
+            </Tooltip>
+          )}
         </Space>
       ),
     },
@@ -221,7 +242,7 @@ export default function VenuesList() {
   );
 
   return (
-    <DashboardLayout onAdd={openAddModal}>
+    <DashboardLayout onAdd={can("venue.create") ? openAddModal : undefined}>
       {error && (
         <Alert
           message={error}

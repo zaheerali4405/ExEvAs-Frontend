@@ -9,6 +9,7 @@ import DashboardLayout from "../../layouts/DashboardLayout";
 import PageCard from "../../components/PageCard";
 import { getDesignations, createDesignation, updateDesignation, setDesignationStatus } from "../../api/designationsApi";
 import { exportToExcel } from "../../utils/exportExcel";
+import { useAuth } from "../../context/AuthContext";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -36,6 +37,7 @@ function useIsMobile(breakpoint = 576) {
 export default function DesignationsList() {
   const isMobile = useIsMobile();
   const navigate = useNavigate();
+  const { can } = useAuth();
   const [designations, setDesignations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -172,15 +174,20 @@ export default function DesignationsList() {
       dataIndex: "isActive",
       width: 110,
       sorter: (a, b) => Number(b.isActive) - Number(a.isActive),
-      render: (isActive, record) => (
-        <Tag
-          color={isActive ? "success" : "default"}
-          style={{ cursor: "pointer" }}
-          onClick={() => handleToggle(record)}
-        >
-          {isActive ? "Active" : "Inactive"}
-        </Tag>
-      ),
+      render: (isActive, record) =>
+        can("designation.activate") ? (
+          <Tag
+            color={isActive ? "success" : "default"}
+            style={{ cursor: "pointer" }}
+            onClick={() => handleToggle(record)}
+          >
+            {isActive ? "Active" : "Inactive"}
+          </Tag>
+        ) : (
+          <Tag color={isActive ? "success" : "default"}>
+            {isActive ? "Active" : "Inactive"}
+          </Tag>
+        ),
     },
     {
       title: "Actions",
@@ -188,27 +195,31 @@ export default function DesignationsList() {
       align: "center",
       render: (_, record) => (
         <Space>
-          <Tooltip title="Edit">
-            <Button
-              size="small"
-              icon={<EditOutlined />}
-              onClick={() => openEditModal(record)}
-            />
-          </Tooltip>
-          <Tooltip title="Manage Roles">
-            <Button
-              size="small"
-              icon={<ApartmentOutlined />}
-              onClick={() => navigate(`/designation-roles?designationId=${record.id}`)}
-            />
-          </Tooltip>
+          {can("designation.update") && (
+            <Tooltip title="Edit">
+              <Button
+                size="small"
+                icon={<EditOutlined />}
+                onClick={() => openEditModal(record)}
+              />
+            </Tooltip>
+          )}
+          {can("designation-role.read-all") && (
+            <Tooltip title="Manage Roles">
+              <Button
+                size="small"
+                icon={<ApartmentOutlined />}
+                onClick={() => navigate(`/designation-roles?designationId=${record.id}`)}
+              />
+            </Tooltip>
+          )}
         </Space>
       ),
     },
   ];
 
   return (
-    <DashboardLayout onAdd={openAddModal}>
+    <DashboardLayout onAdd={can("designation.create") ? openAddModal : undefined}>
       {error && (
         <Alert
           message={error}

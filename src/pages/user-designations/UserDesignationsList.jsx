@@ -12,11 +12,13 @@ import {
 } from "../../api/userDesignationsApi";
 import { getUsers } from "../../api/usersApi";
 import { getDesignations } from "../../api/designationsApi";
+import { useAuth } from "../../context/AuthContext";
 
 const { Text } = Typography;
 
 export default function UserDesignationsList() {
   const [searchParams] = useSearchParams();
+  const { can } = useAuth();
 
   const [users, setUsers] = useState([]);
   const [allDesignations, setAllDesignations] = useState([]);
@@ -164,6 +166,14 @@ export default function UserDesignationsList() {
           );
         }
 
+        if (!can("user-designation.set-main")) {
+          return (
+            <Tooltip title="Not main designation">
+              <StarOutlined style={{ color: "#bfbfbf", fontSize: 18 }} />
+            </Tooltip>
+          );
+        }
+
         return (
           <Tooltip title="Set as main">
             <StarOutlined
@@ -184,10 +194,14 @@ export default function UserDesignationsList() {
 
         if (isToggling) return <Spin size="small" />;
 
+        const canToggle = isChecked
+          ? can("user-designation.unassign")
+          : can("user-designation.assign");
+
         return (
           <Checkbox
             checked={isChecked}
-            disabled={!selectedUserId}
+            disabled={!selectedUserId || !canToggle}
             onChange={(e) => handleToggle(record.id, e.target.checked)}
           />
         );
@@ -199,7 +213,7 @@ export default function UserDesignationsList() {
     () =>
       users.map((u) => ({
         value: u.id,
-        label: `${u.firstName} ${u.lastName} (${u.username})`,
+        label: `${[u.firstName, u.lastName].filter(Boolean).join(" ")} (${u.username})`,
       })),
     [users]
   );
@@ -224,6 +238,7 @@ export default function UserDesignationsList() {
             Select User
           </Text>
           <Select
+            className="assignment-select"
             placeholder="Select a user to manage their designations"
             loading={loadingBase}
             options={userOptions}
