@@ -46,9 +46,10 @@ const segmentLabels = {
   'user-designations':  'User Designations',
   add:                 'Add New',
   edit:               'Edit',
+  resources:           'Manage Resources',
 };
 
-export default function SubHeader({ onAdd }) {
+export default function SubHeader({ onAdd, headerAction }) {
   const location = useLocation();
   const { token } = theme.useToken();
 
@@ -59,20 +60,25 @@ export default function SubHeader({ onAdd }) {
 
   const config = routeConfig[configKey] ?? { title: 'Page', addPath: null };
 
-  // Build breadcrumb items from path segments
+  // Build breadcrumb items from path segments — numeric segments (record
+  // IDs embedded in the URL, e.g. /events/5/resources) are skipped since
+  // they aren't meaningful breadcrumb labels.
   const segments = location.pathname.split('/').filter(Boolean);
   const breadcrumbItems = [
     {
       title: <Link to="/dashboard"><HomeOutlined /> Home</Link>,
     },
-    ...segments.map((seg, index) => {
-      const path = '/' + segments.slice(0, index + 1).join('/');
-      const label = segmentLabels[seg] ?? seg;
-      const isLast = index === segments.length - 1;
-      return {
-        title: isLast ? label : <Link to={path}>{label}</Link>,
-      };
-    }),
+    ...segments
+      .map((seg, index) => {
+        if (/^\d+$/.test(seg)) return null;
+        const path = '/' + segments.slice(0, index + 1).join('/');
+        const label = segmentLabels[seg] ?? seg;
+        const isLast = index === segments.length - 1;
+        return {
+          title: isLast ? label : <Link to={path}>{label}</Link>,
+        };
+      })
+      .filter(Boolean),
   ];
 
   // Only show Add button on exact resource list pages
@@ -97,7 +103,7 @@ export default function SubHeader({ onAdd }) {
         <Breadcrumb items={breadcrumbItems} style={{ fontSize: 12 }} />
       </div>
 
-      {showAdd && (
+      {headerAction ? headerAction : showAdd && (
         <Button
           type="primary"
           icon={<PlusOutlined />}

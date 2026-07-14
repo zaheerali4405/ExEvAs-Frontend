@@ -86,6 +86,44 @@ a {
    beat layered ones — but for !important rules that priority reverses, so
    adding !important here would actually lose to AntD's layered rule. */
 .assignment-select .ant-select-selector,
-.assignment-select .ant-select-input {
+.assignment-select .ant-select-input,
+.assignment-select .ant-picker-input input {
   cursor: pointer;
+}
+
+/* Lets an AntD Table fill a flex-sized parent and scroll internally
+   (scroll.y="100%") instead of growing to its natural content height.
+   None of AntD's own internal wrapper divs stretch to 100% by default, so
+   the percentage never resolves without this — scoped to avoid affecting
+   every other table in the app. Verified against this AntD version's actual
+   DOM chain: .ant-table-wrapper > .ant-spin > .ant-spin-container > .ant-table
+   > .ant-table-container > .ant-table-header / .ant-table-body. */
+.fill-parent-table.ant-table-wrapper,
+.fill-parent-table .ant-spin,
+.fill-parent-table .ant-spin-container,
+.fill-parent-table .ant-table {
+  height: 100%;
+}
+
+.fill-parent-table .ant-spin-container,
+.fill-parent-table .ant-table {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.fill-parent-table .ant-table-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.fill-parent-table .ant-table-header {
+  flex: none;
+}
+
+.fill-parent-table .ant-table-body {
+  flex: auto;
+  min-height: 0;
 }

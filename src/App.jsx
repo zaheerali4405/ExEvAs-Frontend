@@ -23,6 +23,8 @@ import VenueCategoriesList from './pages/venue-categories/VenueCategoriesList';
 import VenuesList from './pages/venues/VenuesList';
 import EquipmentList from './pages/equipment/EquipmentList';
 import EventCategoriesList from './pages/event-categories/EventCategoriesList';
+import EventsList from './pages/events/EventsList';
+import EventResourcesPage from './pages/events/EventResourcesPage';
 import SystemSettingsPage from './pages/system-settings/SystemSettingsPage';
 
 function App() {
@@ -160,6 +162,22 @@ function App() {
             element={
               <ProtectedRoute permission="event-category.read-all">
                 <EventCategoriesList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/events"
+            element={
+              <ProtectedRoute permission="event.read-all">
+                <EventsList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/events/:eventId/resources"
+            element={
+              <ProtectedRoute>
+                <EventResourcesPage />
               </ProtectedRoute>
             }
           />

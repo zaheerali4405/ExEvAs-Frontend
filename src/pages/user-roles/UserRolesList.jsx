@@ -99,6 +99,7 @@ export default function UserRolesList() {
     {
       title: "S.No.",
       width: 70,
+      fixed: "left",
       render: (_, __, index) => index + 1,
     },
     {
@@ -157,52 +158,56 @@ export default function UserRolesList() {
 
   return (
     <DashboardLayout>
-      {error && (
-        <Alert
-          message={error}
-          type="error"
-          showIcon
-          closable
-          onClose={() => setError("")}
-          style={{ marginBottom: 16 }}
-        />
-      )}
-
-      <PageCard>
-        {/* User selector */}
-        <div style={{ marginBottom: 20 }}>
-          <Text strong style={{ display: "block", marginBottom: 6 }}>
-            Select User
-          </Text>
-          <Select
-            className="assignment-select"
-            placeholder="Select a user to manage their roles"
-            loading={loadingBase}
-            options={userOptions}
-            value={selectedUserId}
-            onChange={(val) => setSelectedUserId(val ?? null)}
-            style={{ width: "100%", maxWidth: 400 }}
-            allowClear
-            showSearch
-            filterOption={(input, option) =>
-              option.label.toLowerCase().includes(input.toLowerCase())
-            }
+      <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden" }}>
+        {error && (
+          <Alert
+            message={error}
+            type="error"
+            showIcon
+            closable
+            onClose={() => setError("")}
+            style={{ marginBottom: 16, flexShrink: 0 }}
           />
-        </div>
+        )}
 
-        {/* Roles table */}
-        <div style={{ overflowX: "auto" }}>
-          <Table
-            rowKey="id"
-            dataSource={allRoles}
-            columns={columns}
-            loading={loadingBase || loadingAssigned}
-            size="small"
-            pagination={false}
-            locale={{ emptyText: "No roles found." }}
-          />
-        </div>
-      </PageCard>
+        <PageCard style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
+          {/* User selector */}
+          <div style={{ marginBottom: 20, flexShrink: 0 }}>
+            <Text strong style={{ display: "block", marginBottom: 6 }}>
+              Select User
+            </Text>
+            <Select
+              className="assignment-select"
+              placeholder="Select a user to manage their roles"
+              loading={loadingBase}
+              options={userOptions}
+              value={selectedUserId}
+              onChange={(val) => setSelectedUserId(val ?? null)}
+              style={{ width: "100%", maxWidth: 400 }}
+              allowClear
+              showSearch
+              filterOption={(input, option) =>
+                option.label.toLowerCase().includes(input.toLowerCase())
+              }
+            />
+          </div>
+
+          {/* Roles table */}
+          <div style={{ flex: 1, minHeight: 0 }}>
+            <Table
+              className="fill-parent-table"
+              rowKey="id"
+              dataSource={allRoles}
+              columns={columns}
+              loading={loadingBase || loadingAssigned}
+              size="small"
+              pagination={false}
+              scroll={{ x: "max-content", y: "100%" }}
+              locale={{ emptyText: "No roles found." }}
+            />
+          </div>
+        </PageCard>
+      </div>
     </DashboardLayout>
   );
 }

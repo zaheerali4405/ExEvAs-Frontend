@@ -215,53 +215,57 @@ export default function RolePermissionsList() {
 
   return (
     <DashboardLayout>
-      {error && (
-        <Alert
-          message={error}
-          type="error"
-          showIcon
-          closable
-          onClose={() => setError("")}
-          style={{ marginBottom: 16 }}
-        />
-      )}
-
-      <PageCard>
-        {/* Role selector */}
-        <div style={{ marginBottom: 20 }}>
-          <Text strong style={{ display: "block", marginBottom: 6 }}>
-            Select Role
-          </Text>
-          <Select
-            className="assignment-select"
-            placeholder="Select a role to manage its permissions"
-            loading={loadingBase}
-            options={roles.map((r) => ({ value: r.id, label: r.name }))}
-            value={selectedRoleId}
-            onChange={(val) => setSelectedRoleId(val ?? null)}
-            style={{ width: "100%", maxWidth: 400 }}
-            allowClear
-            showSearch
-            filterOption={(input, option) =>
-              option.label.toLowerCase().includes(input.toLowerCase())
-            }
+      <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden" }}>
+        {error && (
+          <Alert
+            message={error}
+            type="error"
+            showIcon
+            closable
+            onClose={() => setError("")}
+            style={{ marginBottom: 16, flexShrink: 0 }}
           />
-        </div>
+        )}
 
-        {/* Permissions matrix */}
-        <div style={{ overflowX: "auto" }}>
-          <Table
-            rowKey="key"
-            dataSource={dataSource}
-            columns={columns}
-            loading={loadingBase || loadingAssigned}
-            size="small"
-            pagination={false}
-            scroll={{ x: "max-content" }}
-            locale={{ emptyText: "No permissions found." }}
-          />
-        </div>
-      </PageCard>
+        <PageCard style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
+          {/* Role selector */}
+          <div style={{ marginBottom: 20, flexShrink: 0 }}>
+            <Text strong style={{ display: "block", marginBottom: 6 }}>
+              Select Role
+            </Text>
+            <Select
+              className="assignment-select"
+              placeholder="Select a role to manage its permissions"
+              loading={loadingBase}
+              options={roles.map((r) => ({ value: r.id, label: r.name }))}
+              value={selectedRoleId}
+              onChange={(val) => setSelectedRoleId(val ?? null)}
+              style={{ width: "100%", maxWidth: 400 }}
+              allowClear
+              showSearch
+              filterOption={(input, option) =>
+                option.label.toLowerCase().includes(input.toLowerCase())
+              }
+            />
+          </div>
+
+          {/* Permissions matrix — scrolls internally; header row and first
+              column stay fixed via Table's own scroll + fixed column. */}
+          <div style={{ flex: 1, minHeight: 0 }}>
+            <Table
+              className="fill-parent-table"
+              rowKey="key"
+              dataSource={dataSource}
+              columns={columns}
+              loading={loadingBase || loadingAssigned}
+              size="small"
+              pagination={false}
+              scroll={{ x: "max-content", y: "100%" }}
+              locale={{ emptyText: "No permissions found." }}
+            />
+          </div>
+        </PageCard>
+      </div>
     </DashboardLayout>
   );
 }

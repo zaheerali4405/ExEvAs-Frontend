@@ -6,7 +6,7 @@ import SubHeader from '../components/SubHeader';
 
 const { Content } = Layout;
 
-export default function DashboardLayout({ children, onAdd }) {
+export default function DashboardLayout({ children, onAdd, headerAction }) {
   const [collapsed, setCollapsed] = useState(() => {
     const saved = localStorage.getItem('exevas_sidebar_collapsed');
     if (saved !== null) return saved === 'true';
@@ -28,7 +28,7 @@ export default function DashboardLayout({ children, onAdd }) {
 
       <Layout>
         <Navbar collapsed={collapsed} onToggle={handleToggle} />
-        <SubHeader onAdd={onAdd} />
+        <SubHeader onAdd={onAdd} headerAction={headerAction} />
         <Content
           style={{
             overflow: 'auto',
