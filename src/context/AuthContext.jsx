@@ -35,8 +35,12 @@ export function AuthProvider({ children }) {
 
   const updateUser = (patch) => setUser((prev) => prev ? { ...prev, ...patch } : prev);
 
+  // Accepts a single permission key, or an array of keys (any one matching grants access).
   const can = useCallback(
-    (permissionKey) => !!user?.permissions?.includes(permissionKey),
+    (permissionKey) => {
+      if (Array.isArray(permissionKey)) return permissionKey.some((k) => user?.permissions?.includes(k));
+      return !!user?.permissions?.includes(permissionKey);
+    },
     [user]
   );
 

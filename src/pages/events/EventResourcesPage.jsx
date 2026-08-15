@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
-  Table, Select, InputNumber, Button, Alert, Space, Tooltip, Typography, Spin, Empty, Modal, Form,
+  Table, Select, InputNumber, Button, Alert, Space, Tooltip, Typography, Spin, Empty, Modal, Form, Tag,
 } from "antd";
 import { DeleteOutlined, EditOutlined, ArrowLeftOutlined, PlusOutlined } from "@ant-design/icons";
 import DashboardLayout from "../../layouts/DashboardLayout";
@@ -11,15 +11,33 @@ import { getEventVenues, assignEventVenue, updateEventVenue, unassignEventVenue 
 import {
   getEventEquipment, assignEventEquipment, updateEventEquipment, unassignEventEquipment,
 } from "../../api/eventEquipmentApi";
+import { getEventDepartments, assignEventDepartment, unassignEventDepartment } from "../../api/eventDepartmentsApi";
 import { getVenues } from "../../api/venuesApi";
 import { getEquipment } from "../../api/equipmentApi";
+import { getDepartments } from "../../api/departmentsApi";
 import { useAuth } from "../../context/AuthContext";
 
 const { Title, Text } = Typography;
 
-// Only this event category (Prof Exam) allows multiple venues per event —
-// matches the backend rule in EventVenuesService.
+// Only this exam type (Prof Exam) allows multiple venues per event — matches
+// the backend rule in EventVenuesService.
 const MULTI_VENUE_CATEGORY_ID = 1;
+
+const STATUS_LABELS = {
+  hold:        "Hold",
+  scheduled:   "Scheduled",
+  in_progress: "In Progress",
+  completed:   "Completed",
+  cancelled:   "Cancelled",
+};
+
+const STATUS_TAG_COLORS = {
+  hold:        "default",
+  scheduled:   "processing",
+  in_progress: "warning",
+  completed:   "success",
+  cancelled:   "error",
+};
 
 export default function EventResourcesPage() {
   const { eventId } = useParams();
@@ -56,6 +74,16 @@ export default function EventResourcesPage() {
   const canViewEquipment = can("event-equipment.read-all");
   const canAssignEquipment = can("event-equipment.assign");
   const canUnassignEquipment = can("event-equipment.unassign");
+
+  const [assignedDepartments, setAssignedDepartments] = useState([]);
+  const [allDepartments, setAllDepartments] = useState([]);
+  const [selectedDepartmentId, setSelectedDepartmentId] = useState(null);
+  const [assigningDepartment, setAssigningDepartment] = useState(false);
+  const [removingDepartmentId, setRemovingDepartmentId] = useState(null);
+
+  const canViewDepartments = can("event-department.read-all");
+  const canAssignDepartments = can("event-department.assign");
+  const canUnassignDepartments = can("event-department.unassign");
 
   useEffect(() => {
     (async () => {
@@ -103,11 +131,28 @@ export default function EventResourcesPage() {
           // Non-fatal
         }
       }
+
+      if (canViewDepartments) {
+        try {
+          const { data } = await getEventDepartments(eventId);
+          setAssignedDepartments(data);
+        } catch {
+          // Non-fatal
+        }
+      }
+      if (canAssignDepartments) {
+        try {
+          const { data } = await getDepartments();
+          setAllDepartments(data);
+        } catch {
+          // Non-fatal
+        }
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventId]);
 
-  const isMultiVenueCategory = event?.categoryId === MULTI_VENUE_CATEGORY_ID;
+  const isMultiVenueCategory = event?.examType?.id === MULTI_VENUE_CATEGORY_ID;
   const canAddMoreVenues = isMultiVenueCategory || assignedVenues.length === 0;
 
   const availableVenueOptions = useMemo(() => {
@@ -128,6 +173,13 @@ export default function EventResourcesPage() {
       .filter((e) => e.isActive && !assignedIds.has(e.id))
       .map((e) => ({ value: e.id, label: e.name }));
   }, [allEquipment, assignedEquipment]);
+
+  const availableDepartmentOptions = useMemo(() => {
+    const assignedIds = new Set(assignedDepartments.map((d) => d.departmentId));
+    return allDepartments
+      .filter((d) => d.isActive && !assignedIds.has(d.id))
+      .map((d) => ({ value: d.id, label: d.name }));
+  }, [allDepartments, assignedDepartments]);
 
   // Edit-venue modal offers currently-unassigned venues plus whichever venue
   // the row being edited already has (so leaving it unchanged is an option).
@@ -151,6 +203,18 @@ export default function EventResourcesPage() {
     ];
   }, [availableEquipmentOptions, allEquipment, editingEquipmentRow]);
 
+  // Assigning/unassigning a resource can flip the event's status server-side
+  // (Hold<->Scheduled) — refetch so the header and any status-dependent UI
+  // stay accurate.
+  const refreshEventStatus = async () => {
+    try {
+      const { data } = await getEvent(eventId);
+      setEvent(data);
+    } catch {
+      // Non-fatal: the header just shows the last-known status.
+    }
+  };
+
   const handleAssignVenue = async () => {
     if (!selectedVenueId || !seats) return;
     setAssigningVenue(true);
@@ -160,6 +224,7 @@ export default function EventResourcesPage() {
       setAssignedVenues((prev) => [...prev, data]);
       setSelectedVenueId(null);
       setSeats(null);
+      await refreshEventStatus();
     } catch (err) {
       setError(err.response?.data?.message || "Could not assign venue.");
     } finally {
@@ -173,6 +238,7 @@ export default function EventResourcesPage() {
     try {
       await unassignEventVenue(eventId, venueId);
       setAssignedVenues((prev) => prev.filter((v) => v.venueId !== venueId));
+      await refreshEventStatus();
     } catch (err) {
       setError(err.response?.data?.message || "Could not remove venue.");
     } finally {
@@ -209,6 +275,7 @@ export default function EventResourcesPage() {
       setAssignedEquipment((prev) => [...prev, data]);
       setSelectedEquipmentId(null);
       setEquipmentQuantity(1);
+      await refreshEventStatus();
     } catch (err) {
       setError(err.response?.data?.message || "Could not assign equipment.");
     } finally {
@@ -222,10 +289,41 @@ export default function EventResourcesPage() {
     try {
       await unassignEventEquipment(eventId, equipmentId);
       setAssignedEquipment((prev) => prev.filter((e) => e.equipmentId !== equipmentId));
+      await refreshEventStatus();
     } catch (err) {
       setError(err.response?.data?.message || "Could not remove equipment.");
     } finally {
       setRemovingEquipmentId(null);
+    }
+  };
+
+  const handleAssignDepartment = async () => {
+    if (!selectedDepartmentId) return;
+    setAssigningDepartment(true);
+    setError("");
+    try {
+      const { data } = await assignEventDepartment(eventId, selectedDepartmentId);
+      setAssignedDepartments((prev) => [...prev, data]);
+      setSelectedDepartmentId(null);
+      await refreshEventStatus();
+    } catch (err) {
+      setError(err.response?.data?.message || "Could not link department.");
+    } finally {
+      setAssigningDepartment(false);
+    }
+  };
+
+  const handleUnassignDepartment = async (departmentId) => {
+    setRemovingDepartmentId(departmentId);
+    setError("");
+    try {
+      await unassignEventDepartment(eventId, departmentId);
+      setAssignedDepartments((prev) => prev.filter((d) => d.departmentId !== departmentId));
+      await refreshEventStatus();
+    } catch (err) {
+      setError(err.response?.data?.message || "Could not remove department.");
+    } finally {
+      setRemovingDepartmentId(null);
     }
   };
 
@@ -275,6 +373,30 @@ export default function EventResourcesPage() {
                 icon={<DeleteOutlined />}
                 loading={removingVenueId === r.venueId}
                 onClick={() => handleUnassignVenue(r.venueId)}
+              />
+            </Tooltip>
+          )}
+        </Space>
+      ),
+    },
+  ];
+
+  const departmentColumns = [
+    { title: "Name", render: (_, r) => r.department?.name ?? "—" },
+    {
+      title: "Actions",
+      width: 100,
+      align: "center",
+      render: (_, r) => (
+        <Space>
+          {canUnassignDepartments && (
+            <Tooltip title="Remove">
+              <Button
+                size="small"
+                danger
+                icon={<DeleteOutlined />}
+                loading={removingDepartmentId === r.departmentId}
+                onClick={() => handleUnassignDepartment(r.departmentId)}
               />
             </Tooltip>
           )}
@@ -348,11 +470,55 @@ export default function EventResourcesPage() {
               zIndex: 10,
             }}
           >
-            <Title level={5} style={{ margin: 0 }}>{event.name}</Title>
-            <Text type="secondary">
-              {event.category?.name ?? "—"} · {event.department?.name ?? "—"}
-            </Text>
+            <Title level={5} style={{ margin: 0 }}>{event.fullName}</Title>
+            <Space size={8} style={{ marginTop: 4 }}>
+              <Text type="secondary">{event.examType?.fullName ?? "—"}</Text>
+              <Tag color={STATUS_TAG_COLORS[event.status]}>{STATUS_LABELS[event.status]}</Tag>
+            </Space>
           </PageCard>
+
+          {canViewDepartments ? (
+            <PageCard style={{ marginBottom: 16, paddingTop: 12 }}>
+              <Title level={5} style={{ marginTop: 0 }}>Departments</Title>
+
+              {canAssignDepartments && (
+                <Space style={{ marginBottom: 16 }} wrap>
+                  <Select
+                    className="assignment-select"
+                    placeholder="Select a department to link"
+                    options={availableDepartmentOptions}
+                    value={selectedDepartmentId}
+                    onChange={setSelectedDepartmentId}
+                    showSearch
+                    filterOption={(input, option) =>
+                      option.label.toLowerCase().includes(input.toLowerCase())
+                    }
+                    style={{ width: 280 }}
+                  />
+                  <Button
+                    type="primary"
+                    icon={<PlusOutlined />}
+                    disabled={!selectedDepartmentId}
+                    loading={assigningDepartment}
+                    onClick={handleAssignDepartment}
+                  >
+                    Assign
+                  </Button>
+                </Space>
+              )}
+
+              <div style={{ overflowX: "auto" }}>
+                <Table
+                  rowKey="id"
+                  dataSource={assignedDepartments}
+                  columns={departmentColumns}
+                  size="small"
+                  pagination={false}
+                  locale={{ emptyText: <Empty description="No departments linked." /> }}
+                />
+              </div>
+            </PageCard>
+          ) : null}
 
           {canViewVenues ? (
             <PageCard style={{ marginBottom: 16, paddingTop: 12 }}>
@@ -457,7 +623,7 @@ export default function EventResourcesPage() {
             </PageCard>
           ) : null}
 
-          {!canViewVenues && !canViewEquipment && (
+          {!canViewDepartments && !canViewVenues && !canViewEquipment && (
             <PageCard>
               <Text type="secondary">You do not have permission to view resources for this event.</Text>
             </PageCard>

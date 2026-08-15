@@ -11,24 +11,32 @@ const PRIMARY = "#1AB394";
 const fmt = (val) => val || "—";
 const fmtDate = (val) => (val ? dayjs(val).format("DD MMM YYYY") : "—");
 const fmtDateTime = (val) => (val ? dayjs(val).format("DD MMM YYYY, hh:mm A") : "—");
+const capitalize = (val) => (val ? val.charAt(0).toUpperCase() + val.slice(1) : "—");
 
 export default function ProfilePage() {
   const { user } = useAuth();
 
   if (!user) return null;
 
-  const initials = `${user.firstName?.[0] ?? ""}${user.lastName?.[0] ?? ""}`.toUpperCase() || null;
+  const employee = user.employee;
+  const initials = (user.username || user.email)[0]?.toUpperCase() || null;
 
   const items = [
-    { label: "First Name",      children: fmt(user.firstName) },
-    { label: "Last Name",       children: fmt(user.lastName) },
     { label: "Username",        children: fmt(user.username) },
     { label: "Email",           children: fmt(user.email) },
-    { label: "Phone",           children: fmt(user.phoneNo) },
-    { label: "CNIC",            children: fmt(user.cnic) },
-    { label: "Gender",          children: user.gender ? user.gender.charAt(0).toUpperCase() + user.gender.slice(1) : "—" },
-    { label: "Date of Birth",   children: fmtDate(user.dateOfBirth) },
-    { label: "Postal Address",  children: fmt(user.postalAddress), span: 2 },
+    { label: "User Type",       children: capitalize(user.userType) },
+    ...(employee
+      ? [
+          { label: "First Name",     children: fmt(employee.firstName) },
+          { label: "Last Name",      children: fmt(employee.lastName) },
+          { label: "Gender",         children: capitalize(employee.gender) },
+          { label: "Date of Birth",  children: fmtDate(employee.dateOfBirth) },
+          { label: "CNIC",           children: fmt(employee.cnic) },
+          { label: "Phone",          children: fmt(employee.phoneNo) },
+          { label: "Department",     children: fmt(employee.department?.name) },
+          { label: "Postal Address", children: fmt(employee.postalAddress), span: 2 },
+        ]
+      : []),
     {
       label: "Two-Factor Auth",
       children: (
@@ -79,10 +87,10 @@ export default function ProfilePage() {
           </Avatar>
           <div>
             <Title level={4} style={{ margin: 0, color: "#ffffff" }}>
-              {`${user.firstName ?? ""} ${user.lastName ?? ""}`.trim() || user.email}
+              {user.username || "—"}
             </Title>
             <Text style={{ color: "rgba(255,255,255,0.85)", fontSize: 14 }}>
-              @{user.username || user.email}
+              {user.email}
             </Text>
           </div>
         </div>

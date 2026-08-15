@@ -4,11 +4,12 @@ import {
   Button, Alert, Typography, Divider, Row, Col, Spin,
 } from "antd";
 import {
-  SafetyOutlined, LockOutlined, ClockCircleOutlined, BgColorsOutlined,
+  SafetyOutlined, LockOutlined, ClockCircleOutlined, BgColorsOutlined, TagsOutlined,
 } from "@ant-design/icons";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import PageCard from "../../components/PageCard";
 import { getSystemSettings, updateSystemSettings } from "../../api/systemSettingsApi";
+import { getEventCategories, updateEventCategory } from "../../api/eventCategoriesApi";
 import { useTheme } from "../../context/ThemeContext";
 
 const { Title, Text } = Typography;
@@ -39,6 +40,43 @@ function SettingRow({ label, description, children }) {
   );
 }
 
+const toHex = (v) => (typeof v === "string" ? v : v?.toHexString?.() ?? v);
+
+// One row per Event Category / Exam Type — saves its color immediately (via
+// the entity's own PATCH endpoint) as soon as the picker closes, independent
+// of the rest of the System Settings form.
+function ColorRow({ label, color, onSave }) {
+  const [saving, setSaving] = useState(false);
+
+  const handleChangeComplete = async (value) => {
+    const hex = toHex(value);
+    if (hex === color) return;
+    setSaving(true);
+    try {
+      await onSave(hex);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Row align="middle" style={{ marginBottom: 12 }}>
+      <Col flex="1">
+        <Text style={{ display: "block" }}>{label}</Text>
+      </Col>
+      <Col style={{ marginLeft: 16 }}>
+        <ColorPicker
+          showText
+          format="hex"
+          value={color || "#2563EB"}
+          disabled={saving}
+          onChangeComplete={handleChangeComplete}
+        />
+      </Col>
+    </Row>
+  );
+}
+
 export default function SystemSettingsPage() {
   const { updateColors } = useTheme();
   const [form] = Form.useForm();
@@ -46,6 +84,32 @@ export default function SystemSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+
+  const [eventCategories, setEventCategories] = useState([]);
+  const [colorsLoading, setColorsLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      setColorsLoading(true);
+      try {
+        const { data } = await getEventCategories();
+        setEventCategories(data);
+      } catch (err) {
+        setError(err.response?.data?.message || "Could not load event categories.");
+      } finally {
+        setColorsLoading(false);
+      }
+    })();
+  }, []);
+
+  const handleEventCategoryColorSave = async (id, color) => {
+    try {
+      const { data } = await updateEventCategory(id, { color });
+      setEventCategories((prev) => prev.map((c) => (c.id === id ? data : c)));
+    } catch (err) {
+      setError(err.response?.data?.message || "Could not save event category color.");
+    }
+  };
 
   useEffect(() => {
     (async () => {
@@ -81,7 +145,6 @@ export default function SystemSettingsPage() {
     setSuccess("");
     try {
       // ColorPicker returns a Color object — convert to hex string
-      const toHex = (v) => (typeof v === "string" ? v : v?.toHexString?.() ?? v);
       const payload = {
         ...values,
         brandColor:       toHex(values.brandColor),
@@ -255,6 +318,34 @@ export default function SystemSettingsPage() {
               </Button>
             </div>
           </Form>
+        )}
+      </PageCard>
+
+      <PageCard style={{ maxWidth: 680, padding: 24, marginTop: 24 }}>
+        <Title level={5} style={{ marginTop: 0, marginBottom: 4 }}>
+          <TagsOutlined style={{ color: "#1AB394", marginRight: 6 }} />
+          Event Category Colors
+        </Title>
+        <Text type="secondary" style={{ fontSize: 13 }}>
+          These colors are used for Timetable blocks and the legend. Changes save immediately.
+        </Text>
+        <Divider />
+
+        {colorsLoading ? (
+          <div style={{ textAlign: "center", padding: 40 }}>
+            <Spin size="large" />
+          </div>
+        ) : eventCategories.length === 0 ? (
+          <Text type="secondary" style={{ fontSize: 13 }}>No event categories found.</Text>
+        ) : (
+          eventCategories.map((c) => (
+            <ColorRow
+              key={c.id}
+              label={c.name}
+              color={c.color}
+              onSave={(hex) => handleEventCategoryColorSave(c.id, hex)}
+            />
+          ))
         )}
       </PageCard>
     </DashboardLayout>

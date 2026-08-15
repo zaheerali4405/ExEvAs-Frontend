@@ -10,7 +10,7 @@ export default function Dashboard() {
   return (
     <DashboardLayout>
       <Title level={4}>
-        Welcome, {user ? (user.firstName ?? user.email) : '—'} 👋
+        Welcome, {user ? (user.username ?? user.email) : '—'} 👋
       </Title>
       <Text type="secondary">You are logged into ExEvAs Scheduling Engine.</Text>
     </DashboardLayout>

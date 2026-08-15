@@ -53,7 +53,7 @@ export default function Navbar({ collapsed, onToggle }) {
   ];
 
   const initials = user
-    ? `${user.firstName?.[0] ?? ''}${user.lastName?.[0] ?? ''}`.toUpperCase() || null
+    ? (user.username || user.email)[0]?.toUpperCase() || null
     : null;
 
   return (
@@ -99,7 +99,7 @@ export default function Navbar({ collapsed, onToggle }) {
           </Avatar>
           {user && (
             <span style={{ color: '#ffffff', fontSize: 14 }}>
-              {user.firstName ?? user.email}
+              {user.username ?? user.email}
             </span>
           )}
         </div>

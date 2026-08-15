@@ -1,23 +1,21 @@
 import { useState, useEffect, useMemo } from "react";
 import {
-  Table, Input, InputNumber, TimePicker, Select, Button, Tag, Alert, Space, Tooltip,
-  Pagination, Modal, Form, Row, Col,
+  Table, Input, Select, Button, Tag, Alert, Space, Tooltip,
+  Pagination, Modal, Form,
 } from "antd";
-import dayjs from "dayjs";
 import { EditOutlined, DownloadOutlined } from "@ant-design/icons";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import PageCard from "../../components/PageCard";
-import {
-  getEventCategories, createEventCategory, updateEventCategory, setEventCategoryStatus,
-} from "../../api/eventCategoriesApi";
+import { getExamTypes, createExamType, updateExamType, setExamTypeStatus } from "../../api/examTypesApi";
 import { exportToExcel } from "../../utils/exportExcel";
 import { useAuth } from "../../context/AuthContext";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
 const searchableColumns = [
-  { value: "name",   label: "Name" },
-  { value: "status", label: "Status" },
+  { value: "fullName",  label: "Full Name" },
+  { value: "shortName", label: "Short Name" },
+  { value: "status",    label: "Status" },
 ];
 
 const getFieldValue = (item, key) => {
@@ -35,10 +33,10 @@ function useIsMobile(breakpoint = 576) {
   return isMobile;
 }
 
-export default function EventCategoriesList() {
+export default function ExamTypesList() {
   const isMobile = useIsMobile();
   const { can } = useAuth();
-  const [categories, setCategories] = useState([]);
+  const [examTypes, setExamTypes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [searchBy, setSearchBy] = useState(null);
@@ -55,10 +53,10 @@ export default function EventCategoriesList() {
       setLoading(true);
       setError("");
       try {
-        const { data } = await getEventCategories();
-        setCategories(data);
+        const { data } = await getExamTypes();
+        setExamTypes(data);
       } catch (err) {
-        setError(err.response?.data?.message || "Could not load event categories.");
+        setError(err.response?.data?.message || "Could not load exam types.");
       } finally {
         setLoading(false);
       }
@@ -66,24 +64,24 @@ export default function EventCategoriesList() {
   }, []);
 
   const filtered = useMemo(() => {
-    if (!searchTerm.trim()) return categories;
+    if (!searchTerm.trim()) return examTypes;
     const term = searchTerm.toLowerCase();
-    return categories.filter((item) => {
+    return examTypes.filter((item) => {
       if (!searchBy)
         return searchableColumns.some((col) =>
           String(getFieldValue(item, col.value)).toLowerCase().includes(term)
         );
       return String(getFieldValue(item, searchBy)).toLowerCase().includes(term);
     });
-  }, [categories, searchBy, searchTerm]);
+  }, [examTypes, searchBy, searchTerm]);
 
   useEffect(() => { setCurrentPage(1); }, [searchTerm, searchBy, pageSize]);
 
   const handleToggle = (record) => {
     const activate = !record.isActive;
     Modal.confirm({
-      title: activate ? "Activate Event Category" : "Deactivate Event Category",
-      content: `Are you sure you want to ${activate ? "activate" : "deactivate"} "${record.name}"?`,
+      title: activate ? "Activate Exam Type" : "Deactivate Exam Type",
+      content: `Are you sure you want to ${activate ? "activate" : "deactivate"} "${record.fullName}"?`,
       okText: activate ? "Activate" : "Deactivate",
       okButtonProps: {
         danger: !activate,
@@ -93,9 +91,9 @@ export default function EventCategoriesList() {
       centered: true,
       onOk: async () => {
         try {
-          await setEventCategoryStatus(record.id, activate);
-          setCategories((prev) =>
-            prev.map((c) => (c.id === record.id ? { ...c, isActive: activate } : c))
+          await setExamTypeStatus(record.id, activate);
+          setExamTypes((prev) =>
+            prev.map((e) => (e.id === record.id ? { ...e, isActive: activate } : e))
           );
         } catch (err) {
           setError(err.response?.data?.message || "Could not update status.");
@@ -112,38 +110,24 @@ export default function EventCategoriesList() {
 
   const openEditModal = (record) => {
     setEditingRecord(record);
-    form.setFieldsValue({
-      name: record.name,
-      priorityLevel: record.priorityLevel,
-      maxEventsPerDay: record.maxEventsPerDay,
-      minDurationMinutes: record.minDurationMinutes,
-      maxDurationMinutes: record.maxDurationMinutes,
-      minGapMinutes: record.minGapMinutes,
-      windowStartTime: record.windowStartTime ? dayjs(record.windowStartTime, "HH:mm") : null,
-      windowEndTime: record.windowEndTime ? dayjs(record.windowEndTime, "HH:mm") : null,
-    });
+    form.setFieldsValue({ fullName: record.fullName, shortName: record.shortName });
     setModalOpen(true);
   };
 
   const handleModalFinish = async (values) => {
     setModalLoading(true);
     try {
-      const payload = {
-        ...values,
-        windowStartTime: values.windowStartTime ? values.windowStartTime.format("HH:mm") : undefined,
-        windowEndTime: values.windowEndTime ? values.windowEndTime.format("HH:mm") : undefined,
-      };
       if (editingRecord) {
-        const { data } = await updateEventCategory(editingRecord.id, payload);
-        setCategories((prev) => prev.map((c) => (c.id === data.id ? data : c)));
+        const { data } = await updateExamType(editingRecord.id, values);
+        setExamTypes((prev) => prev.map((e) => (e.id === data.id ? data : e)));
       } else {
-        const { data } = await createEventCategory(payload);
-        setCategories((prev) => [...prev, data]);
+        const { data } = await createExamType(values);
+        setExamTypes((prev) => [...prev, data]);
       }
       form.resetFields();
       setModalOpen(false);
     } catch (err) {
-      setError(err.response?.data?.message || `Could not ${editingRecord ? "update" : "create"} event category.`);
+      setError(err.response?.data?.message || `Could not ${editingRecord ? "update" : "create"} exam type.`);
     } finally {
       setModalLoading(false);
     }
@@ -153,12 +137,12 @@ export default function EventCategoriesList() {
     exportToExcel(
       filtered,
       [
-        { label: "S.No.",  accessor: (_, i) => i + 1 },
-        { label: "Name",   accessor: (r) => r.name },
-        { label: "Priority Level", accessor: (r) => r.priorityLevel },
-        { label: "Status", accessor: (r) => (r.isActive ? "Active" : "Inactive") },
+        { label: "S.No.",      accessor: (_, i) => i + 1 },
+        { label: "Full Name",  accessor: (r) => r.fullName },
+        { label: "Short Name", accessor: (r) => r.shortName || "" },
+        { label: "Status",     accessor: (r) => (r.isActive ? "Active" : "Inactive") },
       ],
-      "event-categories"
+      "exam-types"
     );
   };
 
@@ -172,64 +156,15 @@ export default function EventCategoriesList() {
       render: (_, __, index) => (currentPage - 1) * pageSize + index + 1,
     },
     {
-      title: "Name",
-      dataIndex: "name",
-      sorter: (a, b) => a.name.localeCompare(b.name),
+      title: "Full Name",
+      dataIndex: "fullName",
+      sorter: (a, b) => a.fullName.localeCompare(b.fullName),
     },
     {
-      title: "Priority Level",
-      dataIndex: "priorityLevel",
-      width: 120,
-      align: "center",
-      sorter: (a, b) => a.priorityLevel - b.priorityLevel,
-    },
-    {
-      title: "Max Events / Day",
-      dataIndex: "maxEventsPerDay",
+      title: "Short Name",
+      dataIndex: "shortName",
       width: 130,
-      align: "center",
-      sorter: (a, b) => (a.maxEventsPerDay ?? -1) - (b.maxEventsPerDay ?? -1),
-      render: (val) => val ?? "—",
-    },
-    {
-      title: "Min Duration (Mins)",
-      dataIndex: "minDurationMinutes",
-      width: 140,
-      align: "center",
-      sorter: (a, b) => (a.minDurationMinutes ?? -1) - (b.minDurationMinutes ?? -1),
-      render: (val) => val ?? "—",
-    },
-    {
-      title: "Max Duration (Mins)",
-      dataIndex: "maxDurationMinutes",
-      width: 140,
-      align: "center",
-      sorter: (a, b) => (a.maxDurationMinutes ?? -1) - (b.maxDurationMinutes ?? -1),
-      render: (val) => val ?? "—",
-    },
-    {
-      title: "Min Gap (Mins)",
-      dataIndex: "minGapMinutes",
-      width: 120,
-      align: "center",
-      sorter: (a, b) => (a.minGapMinutes ?? -1) - (b.minGapMinutes ?? -1),
-      render: (val) => val ?? "—",
-    },
-    {
-      title: "Earliest Start (HH:mm)",
-      dataIndex: "windowStartTime",
-      width: 150,
-      align: "center",
-      sorter: (a, b) => (a.windowStartTime ?? "").localeCompare(b.windowStartTime ?? ""),
-      render: (val) => val ?? "—",
-    },
-    {
-      title: "Latest End (HH:mm)",
-      dataIndex: "windowEndTime",
-      width: 150,
-      align: "center",
-      sorter: (a, b) => (a.windowEndTime ?? "").localeCompare(b.windowEndTime ?? ""),
-      render: (val) => val ?? "—",
+      render: (val) => val || "—",
     },
     {
       title: "Status",
@@ -237,7 +172,7 @@ export default function EventCategoriesList() {
       width: 110,
       sorter: (a, b) => Number(b.isActive) - Number(a.isActive),
       render: (isActive, record) =>
-        can("event-category.activate") ? (
+        can("exam-type.activate") ? (
           <Tag
             color={isActive ? "success" : "default"}
             style={{ cursor: "pointer" }}
@@ -257,7 +192,7 @@ export default function EventCategoriesList() {
       align: "center",
       render: (_, record) => (
         <Space>
-          {can("event-category.update") && (
+          {can("exam-type.update") && (
             <Tooltip title="Edit">
               <Button size="small" icon={<EditOutlined />} onClick={() => openEditModal(record)} />
             </Tooltip>
@@ -268,7 +203,7 @@ export default function EventCategoriesList() {
   ];
 
   return (
-    <DashboardLayout onAdd={can("event-category.create") ? openAddModal : undefined}>
+    <DashboardLayout onAdd={can("exam-type.create") ? openAddModal : undefined}>
       {error && (
         <Alert
           message={error}
@@ -342,7 +277,7 @@ export default function EventCategoriesList() {
       </PageCard>
 
       <Modal
-        title={editingRecord ? "Edit Event Category" : "Add Event Category"}
+        title={editingRecord ? "Edit Exam Type" : "Add Exam Type"}
         open={modalOpen}
         onCancel={() => { setModalOpen(false); form.resetFields(); }}
         onOk={() => form.submit()}
@@ -359,62 +294,23 @@ export default function EventCategoriesList() {
           style={{ marginTop: 16 }}
         >
           <Form.Item
-            name="name"
-            label="Name"
+            name="fullName"
+            label="Full Name"
             rules={[
-              { required: true, message: "Please enter a name." },
-              { max: 100, message: "Maximum 100 characters." },
+              { required: true, message: "Please enter the exam type's full name." },
+              { max: 150, message: "Maximum 150 characters." },
             ]}
           >
-            <Input placeholder="Category name" />
+            <Input placeholder="e.g. Pre Annual Sendup" />
           </Form.Item>
 
           <Form.Item
-            name="priorityLevel"
-            label="Priority Level"
-            extra="Higher number = higher priority in Year View ordering."
+            name="shortName"
+            label="Short Name"
+            rules={[{ max: 50, message: "Maximum 50 characters." }]}
           >
-            <InputNumber min={1} style={{ width: "100%" }} placeholder="e.g. 1" />
+            <Input placeholder="e.g. PASU" />
           </Form.Item>
-
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="maxEventsPerDay" label="Max Events / Day">
-                <InputNumber min={1} style={{ width: "100%" }} placeholder="No limit" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="minGapMinutes" label="Min Gap Between Events (mins)">
-                <InputNumber min={0} style={{ width: "100%" }} placeholder="No limit" />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="minDurationMinutes" label="Min Duration (mins)">
-                <InputNumber min={1} style={{ width: "100%" }} placeholder="No limit" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="maxDurationMinutes" label="Max Duration (mins)">
-                <InputNumber min={1} style={{ width: "100%" }} placeholder="No limit" />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="windowStartTime" label="Earliest Start Time">
-                <TimePicker format="HH:mm" style={{ width: "100%" }} placeholder="No limit" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="windowEndTime" label="Latest End Time">
-                <TimePicker format="HH:mm" style={{ width: "100%" }} placeholder="No limit" />
-              </Form.Item>
-            </Col>
-          </Row>
         </Form>
       </Modal>
     </DashboardLayout>

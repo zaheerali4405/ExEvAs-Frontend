@@ -214,7 +214,7 @@ export default function UserDesignationsList() {
     () =>
       users.map((u) => ({
         value: u.id,
-        label: `${[u.firstName, u.lastName].filter(Boolean).join(" ")} (${u.username})`,
+        label: u.username ? `${u.username} (${u.email})` : u.email,
       })),
     [users]
   );

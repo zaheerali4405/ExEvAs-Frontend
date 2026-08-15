@@ -25,7 +25,19 @@ import EquipmentList from './pages/equipment/EquipmentList';
 import EventCategoriesList from './pages/event-categories/EventCategoriesList';
 import EventsList from './pages/events/EventsList';
 import EventResourcesPage from './pages/events/EventResourcesPage';
+import TimetablePage from './pages/timetable/TimetablePage';
 import SystemSettingsPage from './pages/system-settings/SystemSettingsPage';
+import InstitutesList from './pages/institutes/InstitutesList';
+import DepartmentsList from './pages/departments/DepartmentsList';
+import EmployeesList from './pages/employees/EmployeesList';
+import StudentsList from './pages/students/StudentsList';
+import SubjectsList from './pages/subjects/SubjectsList';
+import ProgramsList from './pages/programs/ProgramsList';
+import SessionsList from './pages/sessions/SessionsList';
+import DegreeLevelsList from './pages/degree-levels/DegreeLevelsList';
+import ClassesList from './pages/classes/ClassesList';
+import ExamTypesList from './pages/exam-types/ExamTypesList';
+import CoursePapersList from './pages/course-papers/CoursePapersList';
 
 function App() {
   return (
@@ -168,7 +180,7 @@ function App() {
           <Route
             path="/events"
             element={
-              <ProtectedRoute permission="event.read-all">
+              <ProtectedRoute permission={["event.read-all", "event.read-department"]}>
                 <EventsList />
               </ProtectedRoute>
             }
@@ -178,6 +190,102 @@ function App() {
             element={
               <ProtectedRoute>
                 <EventResourcesPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/timetable"
+            element={
+              <ProtectedRoute permission={["event.read-all", "event.read-department"]}>
+                <TimetablePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/institutes"
+            element={
+              <ProtectedRoute permission="institute.read-all">
+                <InstitutesList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/departments"
+            element={
+              <ProtectedRoute permission="department.read-all">
+                <DepartmentsList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/employees"
+            element={
+              <ProtectedRoute permission="employee.read-all">
+                <EmployeesList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/students"
+            element={
+              <ProtectedRoute permission="student.read-all">
+                <StudentsList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/subjects"
+            element={
+              <ProtectedRoute permission="subject.read-all">
+                <SubjectsList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/programs"
+            element={
+              <ProtectedRoute permission="program.read-all">
+                <ProgramsList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/sessions"
+            element={
+              <ProtectedRoute permission="session.read-all">
+                <SessionsList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/degree-levels"
+            element={
+              <ProtectedRoute permission="degree-level.read-all">
+                <DegreeLevelsList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/classes"
+            element={
+              <ProtectedRoute permission="class.read-all">
+                <ClassesList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/exam-types"
+            element={
+              <ProtectedRoute permission="exam-type.read-all">
+                <ExamTypesList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/course-papers"
+            element={
+              <ProtectedRoute permission="course-paper.read-all">
+                <CoursePapersList />
               </ProtectedRoute>
             }
           />

@@ -1,36 +1,39 @@
 import { useState, useEffect, useMemo } from "react";
 import {
   Table, Input, Select, Button, Tag, Alert, Space, Tooltip,
-  Pagination, Modal, Form, DatePicker, Row, Col, Descriptions,
+  Pagination, Modal, Form, Row, Col, Descriptions,
 } from "antd";
 import { EditOutlined, DownloadOutlined, EyeOutlined, ApartmentOutlined, IdcardOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import PageCard from "../../components/PageCard";
-import { getUsers, createUser, updateUser, setUserStatus, setUserLockStatus } from "../../api/usersApi";
+import { getUsers, createUser, updateUser, setUserStatus } from "../../api/usersApi";
 import { exportToExcel } from "../../utils/exportExcel";
 import { useAuth } from "../../context/AuthContext";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
-const GENDER_OPTIONS = [
-  { value: "male",   label: "Male" },
-  { value: "female", label: "Female" },
-  { value: "other",  label: "Other" },
+const USER_TYPE_OPTIONS = [
+  { value: "employee", label: "Employee" },
+  { value: "student",  label: "Student" },
 ];
 
+const USER_TYPE_LABELS = {
+  employee: "Employee",
+  student:  "Student",
+};
+
 const searchableColumns = [
-  { value: "firstName", label: "First Name" },
-  { value: "lastName",  label: "Last Name" },
-  { value: "email",     label: "Email" },
-  { value: "username",  label: "Username" },
-  { value: "phoneNo",   label: "Phone" },
-  { value: "status",    label: "Status" },
+  { value: "email",    label: "Email" },
+  { value: "username", label: "Username" },
+  { value: "userType", label: "User Type" },
+  { value: "status",   label: "Status" },
 ];
 
 const getFieldValue = (item, key) => {
-  if (key === "status") return item.isActive ? "Active" : "Inactive";
+  if (key === "status")   return item.isActive ? "Active" : "Inactive";
+  if (key === "userType") return USER_TYPE_LABELS[item.userType] ?? "";
   return item[key] ?? "";
 };
 
@@ -94,11 +97,13 @@ export default function UsersList() {
 
   useEffect(() => { setCurrentPage(1); }, [searchTerm, searchBy, pageSize]);
 
+  const displayName = (user) => user.username || user.email;
+
   const handleToggleStatus = (user) => {
     const activate = !user.isActive;
     Modal.confirm({
       title: activate ? "Activate User" : "Deactivate User",
-      content: `Are you sure you want to ${activate ? "activate" : "deactivate"} "${user.firstName} ${user.lastName ?? ""}"?`,
+      content: `Are you sure you want to ${activate ? "activate" : "deactivate"} "${displayName(user)}"?`,
       okText: activate ? "Activate" : "Deactivate",
       okButtonProps: {
         danger: !activate,
@@ -119,31 +124,6 @@ export default function UsersList() {
     });
   };
 
-  const handleToggleLock = (user) => {
-    const lock = !user.isLocked;
-    Modal.confirm({
-      title: lock ? "Lock User" : "Unlock User",
-      content: `Are you sure you want to ${lock ? "lock" : "unlock"} "${user.firstName} ${user.lastName ?? ""}"?`,
-      okText: lock ? "Lock" : "Unlock",
-      okButtonProps: {
-        danger: lock,
-        style: !lock ? { background: "#1AB394", borderColor: "#1AB394" } : {},
-      },
-      cancelText: "Cancel",
-      centered: true,
-      onOk: async () => {
-        try {
-          await setUserLockStatus(user.id, lock);
-          setUsers((prev) =>
-            prev.map((u) => (u.id === user.id ? { ...u, isLocked: lock } : u))
-          );
-        } catch (err) {
-          setError(err.response?.data?.message || "Could not update lock status.");
-        }
-      },
-    });
-  };
-
   const openAddModal = () => {
     setEditingRecord(null);
     form.resetFields();
@@ -153,16 +133,9 @@ export default function UsersList() {
   const openEditModal = (record) => {
     setEditingRecord(record);
     form.setFieldsValue({
-      firstName:     record.firstName,
-      lastName:      record.lastName,
-      email:         record.email,
-      username:      record.username,
-      gender:        record.gender,
-      dateOfBirth:   record.dateOfBirth ? dayjs(record.dateOfBirth) : null,
-      cnic:          record.cnic,
-      phoneNo:       record.phoneNo,
-      postalAddress: record.postalAddress,
-      isLocked:      record.isLocked ?? false,
+      email:    record.email,
+      username: record.username,
+      userType: record.userType,
     });
     setModalOpen(true);
   };
@@ -170,17 +143,13 @@ export default function UsersList() {
   const handleModalFinish = async (values) => {
     setModalLoading(true);
     try {
-      const payload = {
-        ...values,
-        dateOfBirth: values.dateOfBirth ? values.dateOfBirth.format("YYYY-MM-DD") : undefined,
-      };
       if (editingRecord) {
-        const { data } = await updateUser(editingRecord.id, payload);
+        const { data } = await updateUser(editingRecord.id, values);
         setUsers((prev) => prev.map((u) =>
           u.id === editingRecord.id ? { ...data, isLocked: u.isLocked } : u
         ));
       } else {
-        const { data } = await createUser(payload);
+        const { data } = await createUser(values);
         setUsers((prev) => [...prev, data]);
       }
       form.resetFields();
@@ -196,16 +165,12 @@ export default function UsersList() {
     exportToExcel(
       filtered,
       [
-        { label: "S.No.",      accessor: (_, i) => i + 1 },
-        { label: "First Name", accessor: (r) => r.firstName },
-        { label: "Last Name",  accessor: (r) => r.lastName || "" },
-        { label: "Username",   accessor: (r) => r.username || "" },
-        { label: "Email",      accessor: (r) => r.email },
-        { label: "Phone",      accessor: (r) => r.phoneNo },
-        { label: "Gender",     accessor: (r) => r.gender },
-        { label: "CNIC",       accessor: (r) => r.cnic },
-        { label: "Status",     accessor: (r) => (r.isActive ? "Active" : "Inactive") },
-        { label: "Locked",     accessor: (r) => (r.isLocked ? "Yes" : "No") },
+        { label: "S.No.",     accessor: (_, i) => i + 1 },
+        { label: "Username",  accessor: (r) => r.username || "" },
+        { label: "Email",     accessor: (r) => r.email },
+        { label: "User Type", accessor: (r) => USER_TYPE_LABELS[r.userType] ?? "" },
+        { label: "Status",    accessor: (r) => (r.isActive ? "Active" : "Inactive") },
+        { label: "Locked",    accessor: (r) => (r.isLocked ? "Yes" : "No") },
       ],
       "users"
     );
@@ -221,11 +186,6 @@ export default function UsersList() {
       render: (_, __, index) => (currentPage - 1) * pageSize + index + 1,
     },
     {
-      title: "Name",
-      render: (_, r) => `${r.firstName}${r.lastName ? " " + r.lastName : ""}`,
-      sorter: (a, b) => a.firstName.localeCompare(b.firstName),
-    },
-    {
       title: "Username",
       dataIndex: "username",
       render: (val) => val || "—",
@@ -237,8 +197,11 @@ export default function UsersList() {
       sorter: (a, b) => a.email.localeCompare(b.email),
     },
     {
-      title: "Phone",
-      dataIndex: "phoneNo",
+      title: "User Type",
+      dataIndex: "userType",
+      width: 120,
+      render: (val) => USER_TYPE_LABELS[val] ?? val,
+      sorter: (a, b) => a.userType.localeCompare(b.userType),
     },
     {
       title: "Status",
@@ -390,7 +353,7 @@ export default function UsersList() {
         confirmLoading={modalLoading}
         destroyOnClose
         centered
-        width={640}
+        width={520}
       >
         <Form
           form={form}
@@ -399,19 +362,6 @@ export default function UsersList() {
           requiredMark={false}
           style={{ marginTop: 16 }}
         >
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="firstName" label="First Name" rules={[{ required: true, message: "Required." }, { max: 100 }]}>
-                <Input placeholder="First name" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="lastName" label="Last Name">
-                <Input placeholder="Last name (optional)" />
-              </Form.Item>
-            </Col>
-          </Row>
-
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item name="email" label="Email" rules={[{ required: true, message: "Required." }, { type: "email", message: "Invalid email." }]}>
@@ -431,43 +381,9 @@ export default function UsersList() {
             </Form.Item>
           )}
 
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="gender" label="Gender" rules={[{ required: true, message: "Required." }]}>
-                <Select placeholder="Select gender" options={GENDER_OPTIONS} />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="dateOfBirth" label="Date of Birth" rules={[{ required: true, message: "Required." }]}>
-                <DatePicker style={{ width: "100%" }} format="YYYY-MM-DD" />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                name="cnic"
-                label="CNIC"
-                rules={[
-                  { required: true, message: "Required." },
-                  { pattern: /^\d{5}-\d{7}-\d{1}$/, message: "Format: XXXXX-XXXXXXX-X" },
-                ]}
-              >
-                <Input placeholder="XXXXX-XXXXXXX-X" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="phoneNo" label="Phone No." rules={[{ required: true, message: "Required." }]}>
-                <Input placeholder="Phone number" />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Form.Item name="postalAddress" label="Postal Address" rules={[{ required: true, message: "Required." }]}>
-            <Input placeholder="Postal address" />
+          <Form.Item name="userType" label="User Type" rules={[{ required: true, message: "Required." }]}>
+            <Select placeholder="Select user type" options={USER_TYPE_OPTIONS} />
           </Form.Item>
-
         </Form>
       </Modal>
 
@@ -488,17 +404,9 @@ export default function UsersList() {
             style={{ marginTop: 16 }}
             labelStyle={{ fontWeight: 600, width: 160 }}
           >
-            <Descriptions.Item label="First Name">{viewRecord.firstName}</Descriptions.Item>
-            <Descriptions.Item label="Last Name">{viewRecord.lastName || "—"}</Descriptions.Item>
             <Descriptions.Item label="Username">{viewRecord.username || "—"}</Descriptions.Item>
             <Descriptions.Item label="Email">{viewRecord.email}</Descriptions.Item>
-            <Descriptions.Item label="Gender">{viewRecord.gender}</Descriptions.Item>
-            <Descriptions.Item label="Date of Birth">
-              {viewRecord.dateOfBirth ? dayjs(viewRecord.dateOfBirth).format("DD MMM YYYY") : "—"}
-            </Descriptions.Item>
-            <Descriptions.Item label="CNIC">{viewRecord.cnic}</Descriptions.Item>
-            <Descriptions.Item label="Phone">{viewRecord.phoneNo}</Descriptions.Item>
-            <Descriptions.Item label="Postal Address">{viewRecord.postalAddress}</Descriptions.Item>
+            <Descriptions.Item label="User Type">{USER_TYPE_LABELS[viewRecord.userType] ?? viewRecord.userType}</Descriptions.Item>
             <Descriptions.Item label="Status">
               <Tag color={viewRecord.isActive ? "success" : "default"}>
                 {viewRecord.isActive ? "Active" : "Inactive"}

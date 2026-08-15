@@ -1,20 +1,22 @@
 import { useState, useEffect, useMemo } from "react";
 import {
   Table, Input, Select, Button, Tag, Alert, Space, Tooltip,
-  Pagination, Modal, Form, DatePicker, TimePicker, Spin,
+  Pagination, Modal, Descriptions, Typography, Empty,
 } from "antd";
-import { EditOutlined, ClockCircleOutlined, DownloadOutlined, AppstoreOutlined } from "@ant-design/icons";
+import { EditOutlined, DownloadOutlined, AppstoreOutlined, EyeOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import PageCard from "../../components/PageCard";
-import {
-  getEvents, createEvent, updateEvent, updateEventTime, updateEventStatus,
-} from "../../api/eventsApi";
-import { getEventCategories } from "../../api/eventCategoriesApi";
-import { getDepartments } from "../../api/mainAppApi";
+import { getEvents } from "../../api/eventsApi";
+import { getEventVenues } from "../../api/eventVenuesApi";
+import { getEventEquipment } from "../../api/eventEquipmentApi";
+import { getEventDepartments } from "../../api/eventDepartmentsApi";
 import { exportToExcel } from "../../utils/exportExcel";
 import { useAuth } from "../../context/AuthContext";
+import EventFormModal from "./EventFormModal";
+
+const { Title, Text } = Typography;
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -34,17 +36,28 @@ const STATUS_COLORS = {
   cancelled:   "error",
 };
 
+const ALL_CATEGORIES = "__all__";
+
 const searchableColumns = [
-  { value: "name",       label: "Name" },
-  { value: "category",   label: "Category" },
-  { value: "department", label: "Department" },
-  { value: "status",     label: "Status" },
+  { value: "fullName",      label: "Full Name" },
+  { value: "shortName",     label: "Short Name" },
+  { value: "examType",      label: "Exam Type" },
+  { value: "eventCategory", label: "Event Category" },
+  { value: "program",       label: "Program" },
+  { value: "degreeLevel",   label: "Degree Level" },
+  { value: "session",       label: "Session" },
+  { value: "status",        label: "Status" },
 ];
 
+const examTypeLabel = (examType) => examType?.fullName ?? "";
+
 const getFieldValue = (item, key) => {
-  if (key === "category")   return item.category?.name ?? "";
-  if (key === "department") return item.department?.name ?? "";
-  if (key === "status")     return item.status ?? "";
+  if (key === "examType")      return examTypeLabel(item.examType);
+  if (key === "eventCategory") return item.eventCategory?.name ?? "";
+  if (key === "program")       return item.program?.fullName ?? "";
+  if (key === "degreeLevel")   return item.degreeLevel?.fullName ?? "";
+  if (key === "session")       return item.session?.name ?? "";
+  if (key === "status")        return item.status ?? "";
   return item[key] ?? "";
 };
 
@@ -63,22 +76,25 @@ export default function EventsList() {
   const navigate = useNavigate();
   const { can } = useAuth();
   const [events, setEvents] = useState([]);
-  const [categories, setCategories] = useState([]);
-  const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [selectedCategoryId, setSelectedCategoryId] = useState(ALL_CATEGORIES);
   const [searchBy, setSearchBy] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [modalOpen, setModalOpen] = useState(false);
-  const [modalLoading, setModalLoading] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
-  const [timeModalRecord, setTimeModalRecord] = useState(null);
-  const [timeModalLoading, setTimeModalLoading] = useState(false);
-  const [statusUpdatingId, setStatusUpdatingId] = useState(null);
-  const [form] = Form.useForm();
-  const [timeForm] = Form.useForm();
+
+  const [viewRecord, setViewRecord] = useState(null);
+  const [viewLoading, setViewLoading] = useState(false);
+  const [viewVenues, setViewVenues] = useState([]);
+  const [viewEquipment, setViewEquipment] = useState([]);
+  const [viewDepartments, setViewDepartments] = useState([]);
+
+  const canViewVenues = can("event-venue.read-all");
+  const canViewEquipment = can("event-equipment.read-all");
+  const canViewDepartments = can("event-department.read-all");
 
   useEffect(() => {
     (async () => {
@@ -92,117 +108,77 @@ export default function EventsList() {
       } finally {
         setLoading(false);
       }
-
-      if (can("event-category.read-all")) {
-        try {
-          const { data } = await getEventCategories();
-          setCategories(data);
-        } catch {
-          // Non-fatal: the category dropdown just stays empty.
-        }
-      }
-
-      try {
-        const { data } = await getDepartments();
-        setDepartments(data);
-      } catch {
-        // Non-fatal: the department dropdown just stays empty.
-      }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Every distinct Event Category currently appearing in the loaded events —
+  // no separate fetch/permission needed, since each event already carries it.
+  const categoryOptions = useMemo(() => {
+    const map = new Map();
+    events.forEach((e) => {
+      if (e.eventCategory && !map.has(e.eventCategory.id)) map.set(e.eventCategory.id, e.eventCategory.name);
+    });
+    return Array.from(map, ([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
+  }, [events]);
+
+  const categoryFiltered = useMemo(() => {
+    if (selectedCategoryId === ALL_CATEGORIES) return events;
+    return events.filter((e) => e.eventCategory?.id === selectedCategoryId);
+  }, [events, selectedCategoryId]);
+
   const filtered = useMemo(() => {
-    if (!searchTerm.trim()) return events;
+    if (!searchTerm.trim()) return categoryFiltered;
     const term = searchTerm.toLowerCase();
-    return events.filter((item) => {
+    return categoryFiltered.filter((item) => {
       if (!searchBy)
         return searchableColumns.some((col) =>
           String(getFieldValue(item, col.value)).toLowerCase().includes(term)
         );
       return String(getFieldValue(item, searchBy)).toLowerCase().includes(term);
     });
-  }, [events, searchBy, searchTerm]);
+  }, [categoryFiltered, searchBy, searchTerm]);
 
-  useEffect(() => { setCurrentPage(1); }, [searchTerm, searchBy, pageSize]);
+  useEffect(() => { setCurrentPage(1); }, [searchTerm, searchBy, selectedCategoryId, pageSize]);
 
   const openAddModal = () => {
     setEditingRecord(null);
-    form.resetFields();
     setModalOpen(true);
   };
 
   const openEditModal = (record) => {
     setEditingRecord(record);
-    form.setFieldsValue({
-      name:         record.name,
-      categoryId:   record.categoryId,
-      departmentId: record.departmentId,
-      eventDate:    record.eventDate ? dayjs(record.eventDate) : null,
-    });
     setModalOpen(true);
   };
 
-  const handleModalFinish = async (values) => {
-    setModalLoading(true);
+  const openViewModal = async (record) => {
+    setViewRecord(record);
+    setViewVenues([]);
+    setViewEquipment([]);
+    setViewDepartments([]);
+    setViewLoading(true);
     try {
-      const payload = {
-        ...values,
-        eventDate: values.eventDate ? values.eventDate.format("YYYY-MM-DD") : undefined,
-      };
-      if (editingRecord) {
-        const { data } = await updateEvent(editingRecord.id, payload);
-        setEvents((prev) => prev.map((e) => (e.id === data.id ? data : e)));
-      } else {
-        const { data } = await createEvent(payload);
-        setEvents((prev) => [data, ...prev]);
-      }
-      form.resetFields();
-      setModalOpen(false);
+      const [venuesRes, equipmentRes, departmentsRes] = await Promise.all([
+        canViewVenues ? getEventVenues(record.id) : Promise.resolve({ data: [] }),
+        canViewEquipment ? getEventEquipment(record.id) : Promise.resolve({ data: [] }),
+        canViewDepartments ? getEventDepartments(record.id) : Promise.resolve({ data: [] }),
+      ]);
+      setViewVenues(venuesRes.data);
+      setViewEquipment(equipmentRes.data);
+      setViewDepartments(departmentsRes.data);
     } catch (err) {
-      setError(err.response?.data?.message || `Could not ${editingRecord ? "update" : "create"} event.`);
+      setError(err.response?.data?.message || "Could not load event resources.");
     } finally {
-      setModalLoading(false);
+      setViewLoading(false);
     }
   };
 
-  const openTimeModal = (record) => {
-    setTimeModalRecord(record);
-    timeForm.setFieldsValue({
-      startTime: record.startTime ? dayjs(record.startTime, "HH:mm") : null,
-      endTime:   record.endTime ? dayjs(record.endTime, "HH:mm") : null,
-    });
-  };
-
-  const handleTimeModalFinish = async (values) => {
-    setTimeModalLoading(true);
-    try {
-      const payload = {
-        startTime: values.startTime ? values.startTime.format("HH:mm") : undefined,
-        endTime:   values.endTime ? values.endTime.format("HH:mm") : undefined,
-      };
-      const { data } = await updateEventTime(timeModalRecord.id, payload);
+  const handleModalSuccess = (data, wasEditing) => {
+    if (wasEditing) {
       setEvents((prev) => prev.map((e) => (e.id === data.id ? data : e)));
-      timeForm.resetFields();
-      setTimeModalRecord(null);
-    } catch (err) {
-      setError(err.response?.data?.message || "Could not update event time.");
-    } finally {
-      setTimeModalLoading(false);
+    } else {
+      setEvents((prev) => [data, ...prev]);
     }
-  };
-
-  const handleStatusChange = async (record, status) => {
-    setStatusUpdatingId(record.id);
-    setError("");
-    try {
-      const { data } = await updateEventStatus(record.id, status);
-      setEvents((prev) => prev.map((e) => (e.id === data.id ? data : e)));
-    } catch (err) {
-      setError(err.response?.data?.message || "Could not update event status.");
-    } finally {
-      setStatusUpdatingId(null);
-    }
+    setModalOpen(false);
   };
 
   const handleExport = () => {
@@ -210,9 +186,13 @@ export default function EventsList() {
       filtered,
       [
         { label: "S.No.",      accessor: (_, i) => i + 1 },
-        { label: "Name",       accessor: (r) => r.name },
-        { label: "Category",   accessor: (r) => r.category?.name || "" },
-        { label: "Department", accessor: (r) => r.department?.name || "" },
+        { label: "Full Name",  accessor: (r) => r.fullName },
+        { label: "Short Name", accessor: (r) => r.shortName },
+        { label: "Exam Type",      accessor: (r) => examTypeLabel(r.examType) },
+        { label: "Event Category", accessor: (r) => r.eventCategory?.name || "" },
+        { label: "Program",     accessor: (r) => r.program?.fullName || "" },
+        { label: "Degree Level", accessor: (r) => r.degreeLevel?.fullName || "" },
+        { label: "Session",     accessor: (r) => r.session?.name || "" },
         { label: "Date",       accessor: (r) => r.eventDate ? dayjs(r.eventDate).format("DD MMM YYYY") : "" },
         { label: "Start Time", accessor: (r) => r.startTime || "" },
         { label: "End Time",   accessor: (r) => r.endTime || "" },
@@ -225,15 +205,6 @@ export default function EventsList() {
   const startEntry = filtered.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
   const endEntry = Math.min(currentPage * pageSize, filtered.length);
 
-  const activeCategoryOptions = useMemo(
-    () => categories.filter((c) => c.isActive).map((c) => ({ value: c.id, label: c.name })),
-    [categories]
-  );
-  const activeDepartmentOptions = useMemo(
-    () => departments.filter((d) => d.isActive).map((d) => ({ value: d.id, label: d.name })),
-    [departments]
-  );
-
   const columns = [
     {
       title: "S.No.",
@@ -241,19 +212,20 @@ export default function EventsList() {
       render: (_, __, index) => (currentPage - 1) * pageSize + index + 1,
     },
     {
-      title: "Name",
-      dataIndex: "name",
-      sorter: (a, b) => a.name.localeCompare(b.name),
+      title: "Full Name",
+      dataIndex: "fullName",
+      sorter: (a, b) => a.fullName.localeCompare(b.fullName),
+    },
+    {
+      title: "Short Name",
+      dataIndex: "shortName",
+      width: 160,
     },
     {
       title: "Category",
-      render: (_, r) => r.category?.name ?? "—",
-      sorter: (a, b) => (a.category?.name ?? "").localeCompare(b.category?.name ?? ""),
-    },
-    {
-      title: "Department",
-      render: (_, r) => r.department?.name ?? "—",
-      sorter: (a, b) => (a.department?.name ?? "").localeCompare(b.department?.name ?? ""),
+      width: 150,
+      render: (_, r) => r.eventCategory?.name ?? "—",
+      sorter: (a, b) => (a.eventCategory?.name ?? "").localeCompare(b.eventCategory?.name ?? ""),
     },
     {
       title: "Date",
@@ -267,37 +239,24 @@ export default function EventsList() {
     {
       title: "Status",
       width: 150,
-      render: (_, record) => {
-        if (statusUpdatingId === record.id) return <Spin size="small" />;
-        if (!can("event.update-status")) {
-          return <Tag color={STATUS_COLORS[record.status]}>{STATUS_OPTIONS.find((s) => s.value === record.status)?.label}</Tag>;
-        }
-        return (
-          <Select
-            className="assignment-select"
-            size="small"
-            value={record.status}
-            options={STATUS_OPTIONS}
-            onChange={(val) => handleStatusChange(record, val)}
-            style={{ width: "100%" }}
-          />
-        );
-      },
+      render: (_, record) => (
+        <Tag color={STATUS_COLORS[record.status]}>{STATUS_OPTIONS.find((s) => s.value === record.status)?.label}</Tag>
+      ),
     },
     {
       title: "Actions",
-      width: 130,
+      width: 170,
       align: "center",
       render: (_, record) => (
         <Space>
-          {can("event.update") && (
-            <Tooltip title="Edit">
-              <Button size="small" icon={<EditOutlined />} onClick={() => openEditModal(record)} />
+          {can("event.read") && (
+            <Tooltip title="View Details">
+              <Button size="small" icon={<EyeOutlined />} onClick={() => openViewModal(record)} />
             </Tooltip>
           )}
-          {can("event.update-time") && (
-            <Tooltip title="Edit Time">
-              <Button size="small" icon={<ClockCircleOutlined />} onClick={() => openTimeModal(record)} />
+          {(can("event.update") || can("event.update-time") || can("event.update-status")) && (
+            <Tooltip title="Edit">
+              <Button size="small" icon={<EditOutlined />} onClick={() => openEditModal(record)} />
             </Tooltip>
           )}
           {can("event.read") && (can("event-venue.read-all") || can("event-equipment.read-all")) && (
@@ -330,12 +289,20 @@ export default function EventsList() {
       <PageCard>
         <div className="list-toolbar">
           <Select
+            className="event-category-filter"
+            placeholder="Event Category"
+            options={[{ value: ALL_CATEGORIES, label: "All Categories" }, ...categoryOptions]}
+            value={selectedCategoryId}
+            onChange={setSelectedCategoryId}
+            style={{ width: "auto" }}
+          />
+          <Select
             placeholder="Search by"
             allowClear
             options={searchableColumns}
             value={searchBy}
             onChange={(val) => setSearchBy(val ?? null)}
-            style={{ width: "100%" }}
+            style={{ width: "auto" }}
           />
           <Input
             placeholder="Search..."
@@ -390,124 +357,109 @@ export default function EventsList() {
       </PageCard>
 
       {/* Add / Edit Modal */}
-      <Modal
-        title={editingRecord ? "Edit Event" : "Add Event"}
+      <EventFormModal
         open={modalOpen}
-        onCancel={() => { setModalOpen(false); form.resetFields(); }}
-        onOk={() => form.submit()}
-        okText={editingRecord ? "Save" : "Add"}
-        confirmLoading={modalLoading}
-        destroyOnClose
-        centered
-        width={560}
-      >
-        <Form
-          form={form}
-          layout="vertical"
-          onFinish={handleModalFinish}
-          requiredMark={false}
-          style={{ marginTop: 16 }}
-        >
-          <Form.Item
-            name="name"
-            label="Name"
-            rules={[
-              { required: true, message: "Please enter an event name." },
-              { max: 150, message: "Maximum 150 characters." },
-            ]}
-          >
-            <Input placeholder="Event name" />
-          </Form.Item>
+        editingRecord={editingRecord}
+        onCancel={() => setModalOpen(false)}
+        onSuccess={handleModalSuccess}
+        onError={setError}
+      />
 
-          <Form.Item
-            name="categoryId"
-            label="Category"
-            rules={[{ required: true, message: "Please select a category." }]}
-          >
-            <Select
-              className="assignment-select"
-              placeholder="Select category"
-              options={activeCategoryOptions}
-              showSearch
-              filterOption={(input, option) =>
-                option.label.toLowerCase().includes(input.toLowerCase())
-              }
-            />
-          </Form.Item>
-
-          <Form.Item
-            name="departmentId"
-            label="Department"
-            rules={[{ required: true, message: "Please select a department." }]}
-          >
-            <Select
-              className="assignment-select"
-              placeholder="Select department"
-              options={activeDepartmentOptions}
-              showSearch
-              filterOption={(input, option) =>
-                option.label.toLowerCase().includes(input.toLowerCase())
-              }
-            />
-          </Form.Item>
-
-          <Form.Item name="eventDate" label="Date">
-            <DatePicker className="assignment-select" style={{ width: "100%" }} format="YYYY-MM-DD" />
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      {/* Edit Time Modal */}
+      {/* View Details Modal */}
       <Modal
-        title="Edit Event Time"
-        open={!!timeModalRecord}
-        onCancel={() => { setTimeModalRecord(null); timeForm.resetFields(); }}
-        onOk={() => timeForm.submit()}
-        okText="Save"
-        confirmLoading={timeModalLoading}
-        destroyOnClose
+        title={viewRecord?.fullName}
+        open={!!viewRecord}
+        onCancel={() => setViewRecord(null)}
+        footer={null}
         centered
+        width={720}
       >
-        <Form
-          form={timeForm}
-          layout="vertical"
-          onFinish={handleTimeModalFinish}
-          requiredMark={false}
-          style={{ marginTop: 16 }}
-        >
-          <Form.Item
-            name="startTime"
-            label="Start Time"
-            dependencies={["endTime"]}
-            rules={[
-              ({ getFieldValue }) => ({
-                validator(_, value) {
-                  const endTime = getFieldValue("endTime");
-                  if (!value || !endTime || value.isBefore(endTime)) return Promise.resolve();
-                  return Promise.reject(new Error("Start time must be before end time."));
-                },
-              }),
-            ]}
-          >
-            <TimePicker className="assignment-select" style={{ width: "100%" }} format="HH:mm" />
-          </Form.Item>
-          <Form.Item
-            name="endTime"
-            label="End Time"
-            dependencies={["startTime"]}
-            rules={[
-              ({ getFieldValue }) => ({
-                validator(_, value) {
-                  const startTime = getFieldValue("startTime");
-                  if (!value || !startTime || value.isAfter(startTime)) return Promise.resolve();
-                  return Promise.reject(new Error("End time must be after start time."));
-                },
-              }),
-            ]}
-          >
-            <TimePicker className="assignment-select" style={{ width: "100%" }} format="HH:mm" />
-          </Form.Item>
-        </Form>
+        {viewRecord && (
+          <div style={{ marginTop: 8 }}>
+            <Descriptions bordered column={2} size="small">
+              <Descriptions.Item label="Full Name" span={2}>{viewRecord.fullName}</Descriptions.Item>
+              <Descriptions.Item label="Short Name" span={2}>{viewRecord.shortName}</Descriptions.Item>
+              <Descriptions.Item label="Exam Type">{viewRecord.examType?.fullName ?? "—"}</Descriptions.Item>
+              <Descriptions.Item label="Event Category">{viewRecord.eventCategory?.name ?? "—"}</Descriptions.Item>
+              <Descriptions.Item label="Program">{viewRecord.program?.fullName ?? "—"}</Descriptions.Item>
+              <Descriptions.Item label="Degree Level">{viewRecord.degreeLevel?.fullName ?? "—"}</Descriptions.Item>
+              <Descriptions.Item label="Session">{viewRecord.session?.name ?? "—"}</Descriptions.Item>
+              <Descriptions.Item label="Status">
+                <Tag color={STATUS_COLORS[viewRecord.status]}>
+                  {STATUS_OPTIONS.find((s) => s.value === viewRecord.status)?.label}
+                </Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="Date">
+                {viewRecord.eventDate ? dayjs(viewRecord.eventDate).format("DD MMM YYYY") : "Not set"}
+              </Descriptions.Item>
+              <Descriptions.Item label="Time">
+                {viewRecord.startTime && viewRecord.endTime
+                  ? `${viewRecord.startTime} – ${viewRecord.endTime}`
+                  : "Not set"}
+              </Descriptions.Item>
+            </Descriptions>
+
+            {canViewDepartments && (
+              <>
+                <Title level={5} style={{ marginTop: 20, marginBottom: 8 }}>Departments</Title>
+                <Table
+                  rowKey="id"
+                  size="small"
+                  pagination={false}
+                  loading={viewLoading}
+                  dataSource={viewDepartments}
+                  locale={{ emptyText: <Empty description="No departments linked." image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+                  columns={[{ title: "Name", render: (_, r) => r.department?.name ?? "—" }]}
+                />
+              </>
+            )}
+
+            {canViewVenues && (
+              <>
+                <Title level={5} style={{ marginTop: 20, marginBottom: 8 }}>Venues</Title>
+                <Table
+                  rowKey="id"
+                  size="small"
+                  pagination={false}
+                  loading={viewLoading}
+                  dataSource={viewVenues}
+                  locale={{ emptyText: <Empty description="No venues assigned." image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+                  columns={[
+                    { title: "Name", render: (_, r) => r.venue?.name ?? "—" },
+                    { title: "Category", render: (_, r) => r.venue?.category?.name ?? "—" },
+                    { title: "Location", render: (_, r) => r.venue?.location ?? "—" },
+                    { title: "Seats Reserved", width: 130, render: (_, r) => r.seats ?? "—" },
+                  ]}
+                />
+              </>
+            )}
+
+            {canViewEquipment && (
+              <>
+                <Title level={5} style={{ marginTop: 20, marginBottom: 8 }}>Equipment</Title>
+                <Table
+                  rowKey="id"
+                  size="small"
+                  pagination={false}
+                  loading={viewLoading}
+                  dataSource={viewEquipment}
+                  locale={{ emptyText: <Empty description="No equipment assigned." image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+                  columns={[
+                    { title: "Name", render: (_, r) => r.equipment?.name ?? "—" },
+                    { title: "Description", render: (_, r) => r.equipment?.description || "—" },
+                    { title: "Quantity", width: 100, render: (_, r) => r.quantity },
+                  ]}
+                />
+              </>
+            )}
+
+            {!canViewDepartments && !canViewVenues && !canViewEquipment && (
+              <Text type="secondary" style={{ display: "block", marginTop: 20 }}>
+                You do not have permission to view resources for this event.
+              </Text>
+            )}
+          </div>
+        )}
       </Modal>
     </DashboardLayout>
   );

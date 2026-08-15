@@ -1,27 +1,29 @@
 import { useState, useEffect, useMemo } from "react";
 import {
-  Table, Input, InputNumber, TimePicker, Select, Button, Tag, Alert, Space, Tooltip,
-  Pagination, Modal, Form, Row, Col,
+  Table, Input, Select, Button, Tag, Alert, Space, Tooltip,
+  Pagination, Modal, Form, InputNumber, DatePicker, Switch,
 } from "antd";
-import dayjs from "dayjs";
 import { EditOutlined, DownloadOutlined } from "@ant-design/icons";
+import dayjs from "dayjs";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import PageCard from "../../components/PageCard";
-import {
-  getEventCategories, createEventCategory, updateEventCategory, setEventCategoryStatus,
-} from "../../api/eventCategoriesApi";
+import { getSessions, createSession, updateSession, setSessionStatus } from "../../api/sessionsApi";
+import { getInstitutes } from "../../api/institutesApi";
 import { exportToExcel } from "../../utils/exportExcel";
 import { useAuth } from "../../context/AuthContext";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
 const searchableColumns = [
-  { value: "name",   label: "Name" },
-  { value: "status", label: "Status" },
+  { value: "name",      label: "Name" },
+  { value: "profYear",  label: "Prof Year" },
+  { value: "institute", label: "Institute" },
+  { value: "status",    label: "Status" },
 ];
 
 const getFieldValue = (item, key) => {
-  if (key === "status") return item.isActive ? "Active" : "Inactive";
+  if (key === "status")    return item.isActive ? "Active" : "Inactive";
+  if (key === "institute") return item.institute?.fullName ?? "";
   return item[key] ?? "";
 };
 
@@ -35,10 +37,11 @@ function useIsMobile(breakpoint = 576) {
   return isMobile;
 }
 
-export default function EventCategoriesList() {
+export default function SessionsList() {
   const isMobile = useIsMobile();
   const { can } = useAuth();
-  const [categories, setCategories] = useState([]);
+  const [sessions, setSessions] = useState([]);
+  const [institutes, setInstitutes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [searchBy, setSearchBy] = useState(null);
@@ -55,34 +58,44 @@ export default function EventCategoriesList() {
       setLoading(true);
       setError("");
       try {
-        const { data } = await getEventCategories();
-        setCategories(data);
+        const { data } = await getSessions();
+        setSessions(data);
       } catch (err) {
-        setError(err.response?.data?.message || "Could not load event categories.");
+        setError(err.response?.data?.message || "Could not load sessions.");
       } finally {
         setLoading(false);
       }
+
+      if (can("institute.read-all")) {
+        try {
+          const { data } = await getInstitutes();
+          setInstitutes(data);
+        } catch {
+          // Non-fatal: the institute dropdown just stays empty.
+        }
+      }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filtered = useMemo(() => {
-    if (!searchTerm.trim()) return categories;
+    if (!searchTerm.trim()) return sessions;
     const term = searchTerm.toLowerCase();
-    return categories.filter((item) => {
+    return sessions.filter((item) => {
       if (!searchBy)
         return searchableColumns.some((col) =>
           String(getFieldValue(item, col.value)).toLowerCase().includes(term)
         );
       return String(getFieldValue(item, searchBy)).toLowerCase().includes(term);
     });
-  }, [categories, searchBy, searchTerm]);
+  }, [sessions, searchBy, searchTerm]);
 
   useEffect(() => { setCurrentPage(1); }, [searchTerm, searchBy, pageSize]);
 
   const handleToggle = (record) => {
     const activate = !record.isActive;
     Modal.confirm({
-      title: activate ? "Activate Event Category" : "Deactivate Event Category",
+      title: activate ? "Activate Session" : "Deactivate Session",
       content: `Are you sure you want to ${activate ? "activate" : "deactivate"} "${record.name}"?`,
       okText: activate ? "Activate" : "Deactivate",
       okButtonProps: {
@@ -93,9 +106,9 @@ export default function EventCategoriesList() {
       centered: true,
       onOk: async () => {
         try {
-          await setEventCategoryStatus(record.id, activate);
-          setCategories((prev) =>
-            prev.map((c) => (c.id === record.id ? { ...c, isActive: activate } : c))
+          await setSessionStatus(record.id, activate);
+          setSessions((prev) =>
+            prev.map((s) => (s.id === record.id ? { ...s, isActive: activate } : s))
           );
         } catch (err) {
           setError(err.response?.data?.message || "Could not update status.");
@@ -113,14 +126,12 @@ export default function EventCategoriesList() {
   const openEditModal = (record) => {
     setEditingRecord(record);
     form.setFieldsValue({
-      name: record.name,
-      priorityLevel: record.priorityLevel,
-      maxEventsPerDay: record.maxEventsPerDay,
-      minDurationMinutes: record.minDurationMinutes,
-      maxDurationMinutes: record.maxDurationMinutes,
-      minGapMinutes: record.minGapMinutes,
-      windowStartTime: record.windowStartTime ? dayjs(record.windowStartTime, "HH:mm") : null,
-      windowEndTime: record.windowEndTime ? dayjs(record.windowEndTime, "HH:mm") : null,
+      name:        record.name,
+      profYear:    record.profYear,
+      startDate:   record.startDate ? dayjs(record.startDate) : null,
+      endDate:     record.endDate ? dayjs(record.endDate) : null,
+      isCurrent:   record.isCurrent,
+      instituteId: record.instituteId,
     });
     setModalOpen(true);
   };
@@ -130,20 +141,20 @@ export default function EventCategoriesList() {
     try {
       const payload = {
         ...values,
-        windowStartTime: values.windowStartTime ? values.windowStartTime.format("HH:mm") : undefined,
-        windowEndTime: values.windowEndTime ? values.windowEndTime.format("HH:mm") : undefined,
+        startDate: values.startDate ? values.startDate.format("YYYY-MM-DD") : undefined,
+        endDate:   values.endDate ? values.endDate.format("YYYY-MM-DD") : undefined,
       };
       if (editingRecord) {
-        const { data } = await updateEventCategory(editingRecord.id, payload);
-        setCategories((prev) => prev.map((c) => (c.id === data.id ? data : c)));
+        const { data } = await updateSession(editingRecord.id, payload);
+        setSessions((prev) => prev.map((s) => (s.id === data.id ? data : s)));
       } else {
-        const { data } = await createEventCategory(payload);
-        setCategories((prev) => [...prev, data]);
+        const { data } = await createSession(payload);
+        setSessions((prev) => [...prev, data]);
       }
       form.resetFields();
       setModalOpen(false);
     } catch (err) {
-      setError(err.response?.data?.message || `Could not ${editingRecord ? "update" : "create"} event category.`);
+      setError(err.response?.data?.message || `Could not ${editingRecord ? "update" : "create"} session.`);
     } finally {
       setModalLoading(false);
     }
@@ -153,12 +164,16 @@ export default function EventCategoriesList() {
     exportToExcel(
       filtered,
       [
-        { label: "S.No.",  accessor: (_, i) => i + 1 },
-        { label: "Name",   accessor: (r) => r.name },
-        { label: "Priority Level", accessor: (r) => r.priorityLevel },
-        { label: "Status", accessor: (r) => (r.isActive ? "Active" : "Inactive") },
+        { label: "S.No.",      accessor: (_, i) => i + 1 },
+        { label: "Name",       accessor: (r) => r.name },
+        { label: "Prof Year",  accessor: (r) => r.profYear },
+        { label: "Institute",  accessor: (r) => r.institute?.fullName || "" },
+        { label: "Start Date", accessor: (r) => r.startDate ? dayjs(r.startDate).format("DD MMM YYYY") : "" },
+        { label: "End Date",   accessor: (r) => r.endDate ? dayjs(r.endDate).format("DD MMM YYYY") : "" },
+        { label: "Is Current", accessor: (r) => (r.isCurrent ? "Yes" : "No") },
+        { label: "Status",     accessor: (r) => (r.isActive ? "Active" : "Inactive") },
       ],
-      "event-categories"
+      "sessions"
     );
   };
 
@@ -177,59 +192,34 @@ export default function EventCategoriesList() {
       sorter: (a, b) => a.name.localeCompare(b.name),
     },
     {
-      title: "Priority Level",
-      dataIndex: "priorityLevel",
+      title: "Prof Year",
+      dataIndex: "profYear",
+      width: 110,
+      sorter: (a, b) => a.profYear - b.profYear,
+    },
+    {
+      title: "Institute",
+      width: 200,
+      render: (_, r) => r.institute?.fullName ?? "—",
+      sorter: (a, b) => (a.institute?.fullName ?? "").localeCompare(b.institute?.fullName ?? ""),
+    },
+    {
+      title: "Start Date",
+      dataIndex: "startDate",
       width: 120,
-      align: "center",
-      sorter: (a, b) => a.priorityLevel - b.priorityLevel,
+      render: (val) => (val ? dayjs(val).format("DD MMM YYYY") : "—"),
     },
     {
-      title: "Max Events / Day",
-      dataIndex: "maxEventsPerDay",
-      width: 130,
-      align: "center",
-      sorter: (a, b) => (a.maxEventsPerDay ?? -1) - (b.maxEventsPerDay ?? -1),
-      render: (val) => val ?? "—",
-    },
-    {
-      title: "Min Duration (Mins)",
-      dataIndex: "minDurationMinutes",
-      width: 140,
-      align: "center",
-      sorter: (a, b) => (a.minDurationMinutes ?? -1) - (b.minDurationMinutes ?? -1),
-      render: (val) => val ?? "—",
-    },
-    {
-      title: "Max Duration (Mins)",
-      dataIndex: "maxDurationMinutes",
-      width: 140,
-      align: "center",
-      sorter: (a, b) => (a.maxDurationMinutes ?? -1) - (b.maxDurationMinutes ?? -1),
-      render: (val) => val ?? "—",
-    },
-    {
-      title: "Min Gap (Mins)",
-      dataIndex: "minGapMinutes",
+      title: "End Date",
+      dataIndex: "endDate",
       width: 120,
-      align: "center",
-      sorter: (a, b) => (a.minGapMinutes ?? -1) - (b.minGapMinutes ?? -1),
-      render: (val) => val ?? "—",
+      render: (val) => (val ? dayjs(val).format("DD MMM YYYY") : "—"),
     },
     {
-      title: "Earliest Start (HH:mm)",
-      dataIndex: "windowStartTime",
-      width: 150,
-      align: "center",
-      sorter: (a, b) => (a.windowStartTime ?? "").localeCompare(b.windowStartTime ?? ""),
-      render: (val) => val ?? "—",
-    },
-    {
-      title: "Latest End (HH:mm)",
-      dataIndex: "windowEndTime",
-      width: 150,
-      align: "center",
-      sorter: (a, b) => (a.windowEndTime ?? "").localeCompare(b.windowEndTime ?? ""),
-      render: (val) => val ?? "—",
+      title: "Current",
+      dataIndex: "isCurrent",
+      width: 100,
+      render: (val) => <Tag color={val ? "processing" : "default"}>{val ? "Yes" : "No"}</Tag>,
     },
     {
       title: "Status",
@@ -237,7 +227,7 @@ export default function EventCategoriesList() {
       width: 110,
       sorter: (a, b) => Number(b.isActive) - Number(a.isActive),
       render: (isActive, record) =>
-        can("event-category.activate") ? (
+        can("session.activate") ? (
           <Tag
             color={isActive ? "success" : "default"}
             style={{ cursor: "pointer" }}
@@ -257,7 +247,7 @@ export default function EventCategoriesList() {
       align: "center",
       render: (_, record) => (
         <Space>
-          {can("event-category.update") && (
+          {can("session.update") && (
             <Tooltip title="Edit">
               <Button size="small" icon={<EditOutlined />} onClick={() => openEditModal(record)} />
             </Tooltip>
@@ -267,8 +257,13 @@ export default function EventCategoriesList() {
     },
   ];
 
+  const instituteOptions = useMemo(
+    () => institutes.filter((i) => i.isActive).map((i) => ({ value: i.id, label: i.fullName })),
+    [institutes]
+  );
+
   return (
-    <DashboardLayout onAdd={can("event-category.create") ? openAddModal : undefined}>
+    <DashboardLayout onAdd={can("session.create") ? openAddModal : undefined}>
       {error && (
         <Alert
           message={error}
@@ -342,7 +337,7 @@ export default function EventCategoriesList() {
       </PageCard>
 
       <Modal
-        title={editingRecord ? "Edit Event Category" : "Add Event Category"}
+        title={editingRecord ? "Edit Session" : "Add Session"}
         open={modalOpen}
         onCancel={() => { setModalOpen(false); form.resetFields(); }}
         onOk={() => form.submit()}
@@ -350,6 +345,7 @@ export default function EventCategoriesList() {
         confirmLoading={modalLoading}
         destroyOnClose
         centered
+        width={560}
       >
         <Form
           form={form}
@@ -357,64 +353,72 @@ export default function EventCategoriesList() {
           onFinish={handleModalFinish}
           requiredMark={false}
           style={{ marginTop: 16 }}
+          initialValues={{ isCurrent: false }}
         >
           <Form.Item
             name="name"
             label="Name"
             rules={[
-              { required: true, message: "Please enter a name." },
-              { max: 100, message: "Maximum 100 characters." },
+              { required: true, message: "Please enter a session name." },
+              { max: 50, message: "Maximum 50 characters." },
             ]}
           >
-            <Input placeholder="Category name" />
+            <Input placeholder="e.g. 2025-26" />
           </Form.Item>
 
           <Form.Item
-            name="priorityLevel"
-            label="Priority Level"
-            extra="Higher number = higher priority in Year View ordering."
+            name="profYear"
+            label="Prof Year"
+            rules={[{ required: true, message: "Please enter the professional exam year." }]}
+            extra="The year used in Event naming, e.g. 2026."
           >
-            <InputNumber min={1} style={{ width: "100%" }} placeholder="e.g. 1" />
+            <InputNumber placeholder="e.g. 2026" min={1900} max={2200} style={{ width: "100%" }} />
           </Form.Item>
 
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="maxEventsPerDay" label="Max Events / Day">
-                <InputNumber min={1} style={{ width: "100%" }} placeholder="No limit" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="minGapMinutes" label="Min Gap Between Events (mins)">
-                <InputNumber min={0} style={{ width: "100%" }} placeholder="No limit" />
-              </Form.Item>
-            </Col>
-          </Row>
+          <Form.Item
+            name="instituteId"
+            label="Institute"
+            rules={[{ required: true, message: "Please select an institute." }]}
+          >
+            <Select
+              placeholder="Select institute"
+              options={instituteOptions}
+              showSearch
+              filterOption={(input, option) =>
+                option.label.toLowerCase().includes(input.toLowerCase())
+              }
+            />
+          </Form.Item>
 
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="minDurationMinutes" label="Min Duration (mins)">
-                <InputNumber min={1} style={{ width: "100%" }} placeholder="No limit" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="maxDurationMinutes" label="Max Duration (mins)">
-                <InputNumber min={1} style={{ width: "100%" }} placeholder="No limit" />
-              </Form.Item>
-            </Col>
-          </Row>
+          <Form.Item
+            name="startDate"
+            label="Start Date"
+            rules={[{ required: true, message: "Please select a start date." }]}
+          >
+            <DatePicker style={{ width: "100%" }} format="YYYY-MM-DD" />
+          </Form.Item>
 
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item name="windowStartTime" label="Earliest Start Time">
-                <TimePicker format="HH:mm" style={{ width: "100%" }} placeholder="No limit" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="windowEndTime" label="Latest End Time">
-                <TimePicker format="HH:mm" style={{ width: "100%" }} placeholder="No limit" />
-              </Form.Item>
-            </Col>
-          </Row>
+          <Form.Item
+            name="endDate"
+            label="End Date"
+            dependencies={["startDate"]}
+            rules={[
+              { required: true, message: "Please select an end date." },
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  const startDate = getFieldValue("startDate");
+                  if (!value || !startDate || value.isAfter(startDate)) return Promise.resolve();
+                  return Promise.reject(new Error("End date must be after start date."));
+                },
+              }),
+            ]}
+          >
+            <DatePicker style={{ width: "100%" }} format="YYYY-MM-DD" />
+          </Form.Item>
+
+          <Form.Item name="isCurrent" label="Current Session" valuePropName="checked">
+            <Switch />
+          </Form.Item>
         </Form>
       </Modal>
     </DashboardLayout>
