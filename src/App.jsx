@@ -19,13 +19,13 @@ import UserDesignationsList from './pages/user-designations/UserDesignationsList
 import ProfilePage from './pages/profile/ProfilePage';
 import ChangePasswordPage from './pages/profile/ChangePasswordPage';
 import SettingsPage from './pages/settings/SettingsPage';
-import VenueCategoriesList from './pages/venue-categories/VenueCategoriesList';
 import VenuesList from './pages/venues/VenuesList';
 import EquipmentList from './pages/equipment/EquipmentList';
-import EventCategoriesList from './pages/event-categories/EventCategoriesList';
 import EventsList from './pages/events/EventsList';
 import EventResourcesPage from './pages/events/EventResourcesPage';
-import TimetablePage from './pages/timetable/TimetablePage';
+import DatesheetPage from './pages/timetable/DatesheetPage';
+import ModerationMeetingsList from './pages/moderation-meetings/ModerationMeetingsList';
+import ModerationMeetingCalendarView from './pages/moderation-meetings/ModerationMeetingCalendarView';
 import SystemSettingsPage from './pages/system-settings/SystemSettingsPage';
 import InstitutesList from './pages/institutes/InstitutesList';
 import DepartmentsList from './pages/departments/DepartmentsList';
@@ -38,6 +38,9 @@ import DegreeLevelsList from './pages/degree-levels/DegreeLevelsList';
 import ClassesList from './pages/classes/ClassesList';
 import ExamTypesList from './pages/exam-types/ExamTypesList';
 import CoursePapersList from './pages/course-papers/CoursePapersList';
+import NotificationsList from './pages/notifications/NotificationsList';
+import MyNotificationsPage from './pages/notifications/MyNotificationsPage';
+import NotificationTemplatesList from './pages/notification-templates/NotificationTemplatesList';
 
 function App() {
   return (
@@ -146,14 +149,6 @@ function App() {
             }
           />
           <Route
-            path="/venue-categories"
-            element={
-              <ProtectedRoute permission="venue-category.read-all">
-                <VenueCategoriesList />
-              </ProtectedRoute>
-            }
-          />
-          <Route
             path="/venues"
             element={
               <ProtectedRoute permission="venue.read-all">
@@ -170,17 +165,9 @@ function App() {
             }
           />
           <Route
-            path="/event-categories"
-            element={
-              <ProtectedRoute permission="event-category.read-all">
-                <EventCategoriesList />
-              </ProtectedRoute>
-            }
-          />
-          <Route
             path="/events"
             element={
-              <ProtectedRoute permission={["event.read-all", "event.read-department"]}>
+              <ProtectedRoute permission={["event.read-all", "event.read-departmental"]}>
                 <EventsList />
               </ProtectedRoute>
             }
@@ -194,10 +181,26 @@ function App() {
             }
           />
           <Route
-            path="/timetable"
+            path="/datesheet"
             element={
-              <ProtectedRoute permission={["event.read-all", "event.read-department"]}>
-                <TimetablePage />
+              <ProtectedRoute permission={["event.read-all", "event.read-departmental"]}>
+                <DatesheetPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/moderation-meetings"
+            element={
+              <ProtectedRoute permission={["moderation-meeting.read-all", "moderation-meeting.read-departmental"]}>
+                <ModerationMeetingsList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/moderation-meetings-calendar"
+            element={
+              <ProtectedRoute permission={["moderation-meeting.read-all", "moderation-meeting.read-departmental"]}>
+                <ModerationMeetingCalendarView />
               </ProtectedRoute>
             }
           />
@@ -286,6 +289,30 @@ function App() {
             element={
               <ProtectedRoute permission="course-paper.read-all">
                 <CoursePapersList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/notification-templates"
+            element={
+              <ProtectedRoute permission="notification-template.read-all">
+                <NotificationTemplatesList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/notifications"
+            element={
+              <ProtectedRoute permission="notification.read-all">
+                <NotificationsList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/my-notifications"
+            element={
+              <ProtectedRoute>
+                <MyNotificationsPage />
               </ProtectedRoute>
             }
           />

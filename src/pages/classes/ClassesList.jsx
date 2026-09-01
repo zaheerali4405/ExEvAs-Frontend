@@ -24,10 +24,12 @@ const searchableColumns = [
   { value: "status",      label: "Status" },
 ];
 
+const shortLabel = (entity) => (entity ? entity.shortName || entity.fullName : "");
+
 const getFieldValue = (item, key) => {
   if (key === "status")      return item.isActive ? "Active" : "Inactive";
-  if (key === "program")     return item.program?.fullName ?? "";
-  if (key === "degreeLevel") return item.degreeLevel?.fullName ?? "";
+  if (key === "program")     return shortLabel(item.program);
+  if (key === "degreeLevel") return shortLabel(item.degreeLevel);
   if (key === "session")     return item.session?.name ?? "";
   return item[key] ?? "";
 };
@@ -184,8 +186,8 @@ export default function ClassesList() {
         { label: "S.No.",        accessor: (_, i) => i + 1 },
         { label: "Full Name",    accessor: (r) => r.fullName },
         { label: "Short Name",   accessor: (r) => r.shortName },
-        { label: "Program",      accessor: (r) => r.program?.fullName || "" },
-        { label: "Degree Level", accessor: (r) => r.degreeLevel?.fullName || "" },
+        { label: "Program",      accessor: (r) => shortLabel(r.program) },
+        { label: "Degree Level", accessor: (r) => shortLabel(r.degreeLevel) },
         { label: "Session",      accessor: (r) => r.session?.name || "" },
         { label: "Status",       accessor: (r) => (r.isActive ? "Active" : "Inactive") },
       ],
@@ -215,12 +217,14 @@ export default function ClassesList() {
     {
       title: "Program",
       width: 160,
-      render: (_, r) => r.program?.fullName ?? "—",
+      render: (_, r) => shortLabel(r.program) || "—",
+      sorter: (a, b) => shortLabel(a.program).localeCompare(shortLabel(b.program)),
     },
     {
       title: "Degree Level",
       width: 160,
-      render: (_, r) => r.degreeLevel?.fullName ?? "—",
+      render: (_, r) => shortLabel(r.degreeLevel) || "—",
+      sorter: (a, b) => shortLabel(a.degreeLevel).localeCompare(shortLabel(b.degreeLevel)),
     },
     {
       title: "Session",

@@ -1,27 +1,54 @@
 import { useState, useEffect, useMemo } from "react";
 import {
-  Table, Input, Select, Button, Tag, Alert, Space, Tooltip,
-  Pagination, Modal, Form,
+  Table, Input, Select, Button, Tag, Alert, Space, Tooltip, Pagination,
 } from "antd";
 import { EditOutlined, DownloadOutlined } from "@ant-design/icons";
+import dayjs from "dayjs";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import PageCard from "../../components/PageCard";
-import {
-  getVenueCategories, createVenueCategory, updateVenueCategory, setVenueCategoryStatus,
-} from "../../api/venueCategoriesApi";
+import { getModerationMeetings } from "../../api/moderationMeetingsApi";
 import { exportToExcel } from "../../utils/exportExcel";
 import { useAuth } from "../../context/AuthContext";
+import ModerationMeetingFormModal from "./ModerationMeetingFormModal";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
+const STATUS_OPTIONS = [
+  { value: "hold",        label: "Hold" },
+  { value: "scheduled",   label: "Scheduled" },
+  { value: "in_progress", label: "In Progress" },
+  { value: "completed",   label: "Completed" },
+  { value: "cancelled",   label: "Cancelled" },
+];
+
+const STATUS_COLORS = {
+  hold:        "default",
+  scheduled:   "processing",
+  in_progress: "warning",
+  completed:   "success",
+  cancelled:   "error",
+};
+
 const searchableColumns = [
-  { value: "name",        label: "Name" },
-  { value: "description", label: "Description" },
-  { value: "status",      label: "Status" },
+  { value: "fullName",     label: "Full Name" },
+  { value: "shortName",    label: "Short Name" },
+  { value: "examType",     label: "Exam Type" },
+  { value: "program",      label: "Program" },
+  { value: "degreeLevel",  label: "Degree Level" },
+  { value: "session",      label: "Session" },
+  { value: "department",   label: "Department" },
+  { value: "venue",        label: "Venue" },
+  { value: "status",       label: "Status" },
 ];
 
 const getFieldValue = (item, key) => {
-  if (key === "status") return item.isActive ? "Active" : "Inactive";
+  if (key === "examType")     return item.examType?.fullName ?? "";
+  if (key === "program")      return item.program?.fullName ?? "";
+  if (key === "degreeLevel")  return item.degreeLevel?.fullName ?? "";
+  if (key === "session")      return item.session?.name ?? "";
+  if (key === "department")   return item.department?.name ?? "";
+  if (key === "venue")        return item.venue?.name ?? "";
+  if (key === "status")       return item.status ?? "";
   return item[key] ?? "";
 };
 
@@ -35,10 +62,10 @@ function useIsMobile(breakpoint = 576) {
   return isMobile;
 }
 
-export default function VenueCategoriesList() {
+export default function ModerationMeetingsList() {
   const isMobile = useIsMobile();
   const { can } = useAuth();
-  const [categories, setCategories] = useState([]);
+  const [meetings, setMeetings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [searchBy, setSearchBy] = useState(null);
@@ -46,19 +73,17 @@ export default function VenueCategoriesList() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [modalOpen, setModalOpen] = useState(false);
-  const [modalLoading, setModalLoading] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
-  const [form] = Form.useForm();
 
   useEffect(() => {
     (async () => {
       setLoading(true);
       setError("");
       try {
-        const { data } = await getVenueCategories();
-        setCategories(data);
+        const { data } = await getModerationMeetings();
+        setMeetings(data);
       } catch (err) {
-        setError(err.response?.data?.message || "Could not load venue categories.");
+        setError(err.response?.data?.message || "Could not load moderation meetings.");
       } finally {
         setLoading(false);
       }
@@ -66,73 +91,36 @@ export default function VenueCategoriesList() {
   }, []);
 
   const filtered = useMemo(() => {
-    if (!searchTerm.trim()) return categories;
+    if (!searchTerm.trim()) return meetings;
     const term = searchTerm.toLowerCase();
-    return categories.filter((item) => {
+    return meetings.filter((item) => {
       if (!searchBy)
         return searchableColumns.some((col) =>
           String(getFieldValue(item, col.value)).toLowerCase().includes(term)
         );
       return String(getFieldValue(item, searchBy)).toLowerCase().includes(term);
     });
-  }, [categories, searchBy, searchTerm]);
+  }, [meetings, searchBy, searchTerm]);
 
   useEffect(() => { setCurrentPage(1); }, [searchTerm, searchBy, pageSize]);
 
-  const handleToggle = (record) => {
-    const activate = !record.isActive;
-    Modal.confirm({
-      title: activate ? "Activate Venue Category" : "Deactivate Venue Category",
-      content: `Are you sure you want to ${activate ? "activate" : "deactivate"} "${record.name}"?`,
-      okText: activate ? "Activate" : "Deactivate",
-      okButtonProps: {
-        danger: !activate,
-        style: activate ? { background: "#1AB394", borderColor: "#1AB394" } : {},
-      },
-      cancelText: "Cancel",
-      centered: true,
-      onOk: async () => {
-        try {
-          await setVenueCategoryStatus(record.id, activate);
-          setCategories((prev) =>
-            prev.map((c) => (c.id === record.id ? { ...c, isActive: activate } : c))
-          );
-        } catch (err) {
-          setError(err.response?.data?.message || "Could not update status.");
-        }
-      },
-    });
-  };
-
   const openAddModal = () => {
     setEditingRecord(null);
-    form.resetFields();
     setModalOpen(true);
   };
 
   const openEditModal = (record) => {
     setEditingRecord(record);
-    form.setFieldsValue({ name: record.name, description: record.description });
     setModalOpen(true);
   };
 
-  const handleModalFinish = async (values) => {
-    setModalLoading(true);
-    try {
-      if (editingRecord) {
-        const { data } = await updateVenueCategory(editingRecord.id, values);
-        setCategories((prev) => prev.map((c) => (c.id === data.id ? data : c)));
-      } else {
-        const { data } = await createVenueCategory(values);
-        setCategories((prev) => [...prev, data]);
-      }
-      form.resetFields();
-      setModalOpen(false);
-    } catch (err) {
-      setError(err.response?.data?.message || `Could not ${editingRecord ? "update" : "create"} venue category.`);
-    } finally {
-      setModalLoading(false);
+  const handleModalSuccess = (data, wasEditing) => {
+    if (wasEditing) {
+      setMeetings((prev) => prev.map((m) => (m.id === data.id ? data : m)));
+    } else {
+      setMeetings((prev) => [data, ...prev]);
     }
+    setModalOpen(false);
   };
 
   const handleExport = () => {
@@ -140,11 +128,20 @@ export default function VenueCategoriesList() {
       filtered,
       [
         { label: "S.No.",       accessor: (_, i) => i + 1 },
-        { label: "Name",        accessor: (r) => r.name },
-        { label: "Description", accessor: (r) => r.description || "" },
-        { label: "Status",      accessor: (r) => (r.isActive ? "Active" : "Inactive") },
+        { label: "Full Name",   accessor: (r) => r.fullName },
+        { label: "Short Name",  accessor: (r) => r.shortName },
+        { label: "Exam Type",   accessor: (r) => r.examType?.fullName || "" },
+        { label: "Program",     accessor: (r) => r.program?.fullName || "" },
+        { label: "Degree Level", accessor: (r) => r.degreeLevel?.fullName || "" },
+        { label: "Session",     accessor: (r) => r.session?.name || "" },
+        { label: "Department",  accessor: (r) => r.department?.name || "" },
+        { label: "Venue",       accessor: (r) => r.venue?.name || "" },
+        { label: "Date",        accessor: (r) => r.eventDate ? dayjs(r.eventDate).format("DD MMM YYYY") : "" },
+        { label: "Start Time",  accessor: (r) => r.startTime || "" },
+        { label: "End Time",    accessor: (r) => r.endTime || "" },
+        { label: "Status",      accessor: (r) => STATUS_OPTIONS.find((s) => s.value === r.status)?.label || r.status },
       ],
-      "venue-categories"
+      "moderation-meetings"
     );
   };
 
@@ -154,38 +151,45 @@ export default function VenueCategoriesList() {
   const columns = [
     {
       title: "S.No.",
-      width: 70,
+      width: 65,
       render: (_, __, index) => (currentPage - 1) * pageSize + index + 1,
     },
     {
-      title: "Name",
-      dataIndex: "name",
-      sorter: (a, b) => a.name.localeCompare(b.name),
+      title: "Full Name",
+      dataIndex: "fullName",
+      sorter: (a, b) => a.fullName.localeCompare(b.fullName),
     },
     {
-      title: "Description",
-      dataIndex: "description",
-      render: (val) => val || "—",
+      title: "Short Name",
+      dataIndex: "shortName",
+      width: 160,
+    },
+    {
+      title: "Department",
+      width: 160,
+      render: (_, r) => r.department?.name ?? "—",
+      sorter: (a, b) => (a.department?.name ?? "").localeCompare(b.department?.name ?? ""),
+    },
+    {
+      title: "Venue",
+      width: 150,
+      render: (_, r) => r.venue?.name ?? "—",
+    },
+    {
+      title: "Date",
+      render: (_, r) => r.eventDate ? dayjs(r.eventDate).format("DD MMM YYYY") : "—",
+    },
+    {
+      title: "Time",
+      width: 130,
+      render: (_, r) => (r.startTime && r.endTime) ? `${r.startTime} – ${r.endTime}` : "—",
     },
     {
       title: "Status",
-      dataIndex: "isActive",
-      width: 110,
-      sorter: (a, b) => Number(b.isActive) - Number(a.isActive),
-      render: (isActive, record) =>
-        can("venue-category.activate") ? (
-          <Tag
-            color={isActive ? "success" : "default"}
-            style={{ cursor: "pointer" }}
-            onClick={() => handleToggle(record)}
-          >
-            {isActive ? "Active" : "Inactive"}
-          </Tag>
-        ) : (
-          <Tag color={isActive ? "success" : "default"}>
-            {isActive ? "Active" : "Inactive"}
-          </Tag>
-        ),
+      width: 130,
+      render: (_, record) => (
+        <Tag color={STATUS_COLORS[record.status]}>{STATUS_OPTIONS.find((s) => s.value === record.status)?.label}</Tag>
+      ),
     },
     {
       title: "Actions",
@@ -193,7 +197,7 @@ export default function VenueCategoriesList() {
       align: "center",
       render: (_, record) => (
         <Space>
-          {can("venue-category.update") && (
+          {(can("moderation-meeting.update") || can("moderation-meeting.update-time") || can("moderation-meeting.update-status")) && (
             <Tooltip title="Edit">
               <Button size="small" icon={<EditOutlined />} onClick={() => openEditModal(record)} />
             </Tooltip>
@@ -204,7 +208,7 @@ export default function VenueCategoriesList() {
   ];
 
   return (
-    <DashboardLayout onAdd={can("venue-category.create") ? openAddModal : undefined}>
+    <DashboardLayout onAdd={(can("moderation-meeting.create") || can("moderation-meeting.create-departmental")) ? openAddModal : undefined}>
       {error && (
         <Alert
           message={error}
@@ -224,7 +228,7 @@ export default function VenueCategoriesList() {
             options={searchableColumns}
             value={searchBy}
             onChange={(val) => setSearchBy(val ?? null)}
-            style={{ width: "100%" }}
+            style={{ width: "auto" }}
           />
           <Input
             placeholder="Search..."
@@ -264,6 +268,7 @@ export default function VenueCategoriesList() {
                 Showing {startEntry}–{endEntry} of {filtered.length} Entries
               </span>
             </div>
+
             <Pagination
               current={currentPage}
               pageSize={pageSize}
@@ -277,38 +282,13 @@ export default function VenueCategoriesList() {
         </div>
       </PageCard>
 
-      <Modal
-        title={editingRecord ? "Edit Venue Category" : "Add Venue Category"}
+      <ModerationMeetingFormModal
         open={modalOpen}
-        onCancel={() => { setModalOpen(false); form.resetFields(); }}
-        onOk={() => form.submit()}
-        okText={editingRecord ? "Save" : "Add"}
-        confirmLoading={modalLoading}
-        destroyOnClose
-        centered
-      >
-        <Form
-          form={form}
-          layout="vertical"
-          onFinish={handleModalFinish}
-          requiredMark={false}
-          style={{ marginTop: 16 }}
-        >
-          <Form.Item
-            name="name"
-            label="Name"
-            rules={[
-              { required: true, message: "Please enter a name." },
-              { max: 100, message: "Maximum 100 characters." },
-            ]}
-          >
-            <Input placeholder="Category name" />
-          </Form.Item>
-          <Form.Item name="description" label="Description">
-            <Input placeholder="Brief description (optional)" />
-          </Form.Item>
-        </Form>
-      </Modal>
+        editingRecord={editingRecord}
+        onCancel={() => setModalOpen(false)}
+        onSuccess={handleModalSuccess}
+        onError={setError}
+      />
     </DashboardLayout>
   );
 }

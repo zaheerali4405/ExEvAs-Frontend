@@ -66,8 +66,7 @@ a {
   }
 
   .list-toolbar .ant-input-affix-wrapper,
-  .list-toolbar .ant-btn,
-  .list-toolbar .event-category-filter {
+  .list-toolbar .ant-btn {
     width: auto !important;
   }
 }
@@ -149,4 +148,11 @@ a {
 
 .timetable-thin-scroll::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* Tabs sitting inline in a toolbar row (e.g. Notifications list) don't need
+   the default full-width underline — the toolbar row itself provides the
+   visual separation from the table below. */
+.no-border-tabs .ant-tabs-nav::before {
+  border-bottom: none;
 }

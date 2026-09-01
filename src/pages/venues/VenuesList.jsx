@@ -7,11 +7,22 @@ import { EditOutlined, DownloadOutlined } from "@ant-design/icons";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import PageCard from "../../components/PageCard";
 import { getVenues, createVenue, updateVenue, setVenueStatus } from "../../api/venuesApi";
-import { getVenueCategories } from "../../api/venueCategoriesApi";
 import { exportToExcel } from "../../utils/exportExcel";
 import { useAuth } from "../../context/AuthContext";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+
+const CATEGORY_OPTIONS = [
+  { value: "static", label: "Static" },
+  { value: "mobile", label: "Mobile" },
+  { value: "moderation", label: "Moderation" },
+];
+
+const CATEGORY_LABELS = {
+  static: "Static",
+  mobile: "Mobile",
+  moderation: "Moderation",
+};
 
 const searchableColumns = [
   { value: "name",     label: "Name" },
@@ -22,7 +33,7 @@ const searchableColumns = [
 
 const getFieldValue = (item, key) => {
   if (key === "status")   return item.isActive ? "Active" : "Inactive";
-  if (key === "category") return item.category?.name ?? "";
+  if (key === "category") return CATEGORY_LABELS[item.category] ?? "";
   return item[key] ?? "";
 };
 
@@ -40,7 +51,6 @@ export default function VenuesList() {
   const isMobile = useIsMobile();
   const { can } = useAuth();
   const [venues, setVenues] = useState([]);
-  const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [searchBy, setSearchBy] = useState(null);
@@ -63,18 +73,6 @@ export default function VenuesList() {
         setError(err.response?.data?.message || "Could not load venues.");
       } finally {
         setLoading(false);
-      }
-
-      // Only needed for the Add/Edit modal's category dropdown — a venue's
-      // category is already embedded in each venue record, so a user without
-      // venue-category.read-all can still view the list without this.
-      if (can("venue-category.read-all")) {
-        try {
-          const { data } = await getVenueCategories();
-          setCategories(data);
-        } catch {
-          // Non-fatal: the category dropdown just stays empty.
-        }
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -128,10 +126,10 @@ export default function VenuesList() {
   const openEditModal = (record) => {
     setEditingRecord(record);
     form.setFieldsValue({
-      name:       record.name,
-      categoryId: record.categoryId,
-      location:   record.location,
-      capacity:   record.capacity,
+      name:     record.name,
+      category: record.category,
+      location: record.location,
+      capacity: record.capacity,
     });
     setModalOpen(true);
   };
@@ -161,7 +159,7 @@ export default function VenuesList() {
       [
         { label: "S.No.",    accessor: (_, i) => i + 1 },
         { label: "Name",     accessor: (r) => r.name },
-        { label: "Category", accessor: (r) => r.category?.name || "" },
+        { label: "Category", accessor: (r) => CATEGORY_LABELS[r.category] || "" },
         { label: "Location", accessor: (r) => r.location },
         { label: "Capacity", accessor: (r) => r.capacity },
         { label: "Status",   accessor: (r) => (r.isActive ? "Active" : "Inactive") },
@@ -186,8 +184,10 @@ export default function VenuesList() {
     },
     {
       title: "Category",
-      render: (_, r) => r.category?.name ?? "—",
-      sorter: (a, b) => (a.category?.name ?? "").localeCompare(b.category?.name ?? ""),
+      dataIndex: "category",
+      width: 120,
+      render: (val) => CATEGORY_LABELS[val] ?? val,
+      sorter: (a, b) => (CATEGORY_LABELS[a.category] ?? "").localeCompare(CATEGORY_LABELS[b.category] ?? ""),
     },
     {
       title: "Location",
@@ -235,11 +235,6 @@ export default function VenuesList() {
       ),
     },
   ];
-
-  const activeCategoryOptions = useMemo(
-    () => categories.filter((c) => c.isActive).map((c) => ({ value: c.id, label: c.name })),
-    [categories]
-  );
 
   return (
     <DashboardLayout onAdd={can("venue.create") ? openAddModal : undefined}>
@@ -345,18 +340,11 @@ export default function VenuesList() {
           </Form.Item>
 
           <Form.Item
-            name="categoryId"
+            name="category"
             label="Category"
             rules={[{ required: true, message: "Please select a category." }]}
           >
-            <Select
-              placeholder="Select category"
-              options={activeCategoryOptions}
-              showSearch
-              filterOption={(input, option) =>
-                option.label.toLowerCase().includes(input.toLowerCase())
-              }
-            />
+            <Select placeholder="Select category" options={CATEGORY_OPTIONS} />
           </Form.Item>
 
           <Form.Item

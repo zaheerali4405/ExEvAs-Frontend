@@ -28,6 +28,9 @@ import {
   setStudentStatus,
 } from "../../api/studentsApi";
 import { getClasses } from "../../api/classesApi";
+import { getSessions } from "../../api/sessionsApi";
+import { getPrograms } from "../../api/programsApi";
+import { getDegreeLevels } from "../../api/degreeLevelsApi";
 import { exportToExcel } from "../../utils/exportExcel";
 import { useAuth } from "../../context/AuthContext";
 
@@ -52,9 +55,16 @@ const searchableColumns = [
   { value: "status", label: "Status" },
 ];
 
+// The Roll No. field's locked prefix, taken from the selected class's
+// program short name (e.g. program shortName "M" -> prefix "M-").
+const classPrefix = (cls) =>
+  cls?.program ? `${cls.program.shortName || cls.program.fullName}-` : "";
+
+const classLabel = (cls) => (cls ? cls.shortName || cls.fullName : "");
+
 const getFieldValue = (item, key) => {
   if (key === "status") return item.isActive ? "Active" : "Inactive";
-  if (key === "class") return item.class?.fullName ?? "";
+  if (key === "class") return classLabel(item.class);
   return item[key] ?? "";
 };
 
@@ -73,6 +83,9 @@ export default function StudentsList() {
   const { can } = useAuth();
   const [students, setStudents] = useState([]);
   const [classes, setClasses] = useState([]);
+  const [sessions, setSessions] = useState([]);
+  const [programs, setPrograms] = useState([]);
+  const [degreeLevels, setDegreeLevels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [searchBy, setSearchBy] = useState(null);
@@ -83,6 +96,10 @@ export default function StudentsList() {
   const [modalLoading, setModalLoading] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
   const [form] = Form.useForm();
+  const selectedSessionId = Form.useWatch("sessionId", form);
+  const selectedProgramId = Form.useWatch("programId", form);
+  const selectedDegreeLevelId = Form.useWatch("degreeLevelId", form);
+  const selectedClassId = Form.useWatch("classId", form);
 
   useEffect(() => {
     (async () => {
@@ -102,12 +119,59 @@ export default function StudentsList() {
           const { data } = await getClasses();
           setClasses(data);
         } catch {
-          // Non-fatal: the class dropdown just stays empty.
+          // Non-fatal: classId just can't be auto-resolved.
+        }
+      }
+
+      if (can("session.read-all")) {
+        try {
+          const { data } = await getSessions();
+          setSessions(data);
+        } catch {
+          // Non-fatal: the session dropdown just stays empty.
+        }
+      }
+
+      if (can("program.read-all")) {
+        try {
+          const { data } = await getPrograms();
+          setPrograms(data);
+        } catch {
+          // Non-fatal: the program dropdown just stays empty.
+        }
+      }
+
+      if (can("degree-level.read-all")) {
+        try {
+          const { data } = await getDegreeLevels();
+          setDegreeLevels(data);
+        } catch {
+          // Non-fatal: the degree level dropdown just stays empty.
         }
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Class is fully determined by Session + Program + Degree Level (Class has
+  // a unique constraint on that triple) — no separate Class dropdown, it's
+  // resolved silently and stored in a hidden form field.
+  const matchedClass = useMemo(() => {
+    if (!selectedSessionId || !selectedProgramId || !selectedDegreeLevelId) return null;
+    return (
+      classes.find(
+        (c) =>
+          c.isActive &&
+          c.sessionId === selectedSessionId &&
+          c.programId === selectedProgramId &&
+          c.degreeLevelId === selectedDegreeLevelId
+      ) ?? null
+    );
+  }, [classes, selectedSessionId, selectedProgramId, selectedDegreeLevelId]);
+
+  useEffect(() => {
+    form.setFieldValue("classId", matchedClass?.id);
+  }, [matchedClass, form]);
 
   const filtered = useMemo(() => {
     if (!searchTerm.trim()) return students;
@@ -162,11 +226,17 @@ export default function StudentsList() {
 
   const openEditModal = (record) => {
     setEditingRecord(record);
+    const prefix = classPrefix(record.class);
     form.setFieldsValue({
+      sessionId: record.sessionId,
+      programId: record.class?.program?.id,
+      degreeLevelId: record.class?.degreeLevel?.id,
       classId: record.classId,
       firstName: record.firstName,
       lastName: record.lastName,
-      rollNo: record.rollNo,
+      rollNoSuffix: record.rollNo.startsWith(prefix)
+        ? record.rollNo.slice(prefix.length)
+        : record.rollNo,
       registrationNo: record.registrationNo,
       gender: record.gender,
       dateOfBirth: record.dateOfBirth ? dayjs(record.dateOfBirth) : null,
@@ -178,10 +248,19 @@ export default function StudentsList() {
   };
 
   const handleModalFinish = async (values) => {
+    if (!values.classId) {
+      setError(
+        "No class exists for the selected Session, Program and Degree Level combination. Create it in the Classes module first."
+      );
+      return;
+    }
     setModalLoading(true);
     try {
+      const { rollNoSuffix, programId, degreeLevelId, ...rest } = values;
+      const selectedClass = classes.find((c) => c.id === values.classId);
       const payload = {
-        ...values,
+        ...rest,
+        rollNo: `${classPrefix(selectedClass)}${rollNoSuffix || ""}`,
         dateOfBirth: values.dateOfBirth
           ? values.dateOfBirth.format("YYYY-MM-DD")
           : undefined,
@@ -219,7 +298,7 @@ export default function StudentsList() {
         { label: "Gender", accessor: (r) => r.gender },
         { label: "CNIC", accessor: (r) => r.cnic },
         { label: "Phone", accessor: (r) => r.phoneNo },
-        { label: "Class", accessor: (r) => r.class?.fullName || "" },
+        { label: "Class", accessor: (r) => classLabel(r.class) },
         {
           label: "Status",
           accessor: (r) => (r.isActive ? "Active" : "Inactive"),
@@ -257,9 +336,8 @@ export default function StudentsList() {
     {
       title: "Class",
       width: 180,
-      render: (_, r) => r.class?.fullName ?? "—",
-      sorter: (a, b) =>
-        (a.class?.fullName ?? "").localeCompare(b.class?.fullName ?? ""),
+      render: (_, r) => classLabel(r.class) || "—",
+      sorter: (a, b) => classLabel(a.class).localeCompare(classLabel(b.class)),
     },
     {
       title: "Status",
@@ -301,12 +379,24 @@ export default function StudentsList() {
     },
   ];
 
-  const classOptions = useMemo(
-    () =>
-      classes
-        .filter((c) => c.isActive)
-        .map((c) => ({ value: c.id, label: c.fullName })),
-    [classes],
+  const sessionOptions = useMemo(
+    () => sessions.filter((s) => s.isActive).map((s) => ({ value: s.id, label: s.name })),
+    [sessions],
+  );
+
+  const programOptions = useMemo(
+    () => programs.filter((p) => p.isActive).map((p) => ({ value: p.id, label: p.fullName })),
+    [programs],
+  );
+
+  const degreeLevelOptions = useMemo(
+    () => degreeLevels.filter((d) => d.isActive).map((d) => ({ value: d.id, label: d.fullName })),
+    [degreeLevels],
+  );
+
+  const rollNoPrefix = useMemo(
+    () => classPrefix(classes.find((c) => c.id === selectedClassId)),
+    [classes, selectedClassId],
   );
 
   return (
@@ -405,7 +495,7 @@ export default function StudentsList() {
         confirmLoading={modalLoading}
         destroyOnClose
         centered
-        width={640}
+        width={900}
       >
         <Form
           form={form}
@@ -424,34 +514,83 @@ export default function StudentsList() {
             </Form.Item>
           )}
 
+          {/* classId is resolved silently from Session + Program + Degree Level
+              (Class is uniquely determined by that triple) — no visible Class field. */}
+          <Form.Item name="classId" hidden>
+            <Input />
+          </Form.Item>
+
           <Row gutter={16}>
-            <Col span={12}>
+            <Col span={8}>
               <Form.Item
-                name="firstName"
-                label="First Name"
-                rules={[{ required: true, message: "Required." }, { max: 100 }]}
+                name="sessionId"
+                label="Session"
+                rules={[{ required: true, message: "Please select a session." }]}
               >
-                <Input placeholder="First name" />
+                <Select
+                  placeholder="Select session"
+                  options={sessionOptions}
+                  showSearch
+                  filterOption={(input, option) =>
+                    option.label.toLowerCase().includes(input.toLowerCase())
+                  }
+                />
               </Form.Item>
             </Col>
-            <Col span={12}>
-              <Form.Item name="lastName" label="Last Name">
-                <Input placeholder="Last name (optional)" />
+            <Col span={8}>
+              <Form.Item
+                name="programId"
+                label="Program"
+                rules={[{ required: true, message: "Please select a program." }]}
+              >
+                <Select
+                  placeholder="Select program"
+                  options={programOptions}
+                  showSearch
+                  filterOption={(input, option) =>
+                    option.label.toLowerCase().includes(input.toLowerCase())
+                  }
+                />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item
+                name="degreeLevelId"
+                label="Degree Level"
+                rules={[{ required: true, message: "Please select a degree level." }]}
+              >
+                <Select
+                  placeholder="Select degree level"
+                  options={degreeLevelOptions}
+                  showSearch
+                  filterOption={(input, option) =>
+                    option.label.toLowerCase().includes(input.toLowerCase())
+                  }
+                />
               </Form.Item>
             </Col>
           </Row>
 
+          {selectedSessionId && selectedProgramId && selectedDegreeLevelId && !matchedClass && (
+            <Alert
+              type="error"
+              showIcon
+              message="No class exists for this Session, Program and Degree Level combination. Create it in the Classes module first."
+              style={{ marginBottom: 16 }}
+            />
+          )}
+
           <Row gutter={16}>
-            <Col span={12}>
+            <Col span={8}>
               <Form.Item
-                name="rollNo"
+                name="rollNoSuffix"
                 label="Roll No."
                 rules={[{ required: true, message: "Required." }, { max: 50 }]}
               >
-                <Input placeholder="Roll number" />
+                <Input addonBefore={rollNoPrefix || "—"} placeholder="e.g. 25-001" />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col span={8}>
               <Form.Item
                 name="registrationNo"
                 label="Registration No."
@@ -460,10 +599,24 @@ export default function StudentsList() {
                 <Input placeholder="Registration number" />
               </Form.Item>
             </Col>
+            <Col span={8}>
+              <Form.Item
+                name="firstName"
+                label="First Name"
+                rules={[{ required: true, message: "Required." }, { max: 100 }]}
+              >
+                <Input placeholder="First name" />
+              </Form.Item>
+            </Col>
           </Row>
 
           <Row gutter={16}>
-            <Col span={12}>
+            <Col span={8}>
+              <Form.Item name="lastName" label="Last Name">
+                <Input placeholder="Last name (optional)" />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
               <Form.Item
                 name="gender"
                 label="Gender"
@@ -472,7 +625,7 @@ export default function StudentsList() {
                 <Select placeholder="Select gender" options={GENDER_OPTIONS} />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col span={8}>
               <Form.Item
                 name="dateOfBirth"
                 label="Date of Birth"
@@ -484,7 +637,7 @@ export default function StudentsList() {
           </Row>
 
           <Row gutter={16}>
-            <Col span={12}>
+            <Col span={8}>
               <Form.Item
                 name="cnic"
                 label="CNIC"
@@ -499,7 +652,7 @@ export default function StudentsList() {
                 <Input placeholder="XXXXX-XXXXXXX-X" />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col span={8}>
               <Form.Item
                 name="phoneNo"
                 label="Phone No."
@@ -508,10 +661,7 @@ export default function StudentsList() {
                 <Input placeholder="Phone number" />
               </Form.Item>
             </Col>
-          </Row>
-
-          <Row gutter={16}>
-            <Col span={12}>
+            <Col span={8}>
               <Form.Item
                 name="postalAddress"
                 label="Postal Address"
@@ -520,29 +670,13 @@ export default function StudentsList() {
                 <Input placeholder="Postal address" />
               </Form.Item>
             </Col>
-            <Col span={12}>
-              <Form.Item
-                name="classId"
-                label="Class"
-                rules={[{ required: true, message: "Please select a class." }]}
-              >
-                <Select
-                  placeholder="Select class"
-                  options={classOptions}
-                  showSearch
-                  filterOption={(input, option) =>
-                    option.label.toLowerCase().includes(input.toLowerCase())
-                  }
-                />
-              </Form.Item>
-            </Col>
           </Row>
 
           {!editingRecord && (
             <>
               <Divider>Login Account</Divider>
               <Row gutter={16}>
-                <Col span={12}>
+                <Col span={8}>
                   <Form.Item
                     name="email"
                     label="Email"
@@ -554,7 +688,7 @@ export default function StudentsList() {
                     <Input placeholder="Email address" />
                   </Form.Item>
                 </Col>
-                <Col span={12}>
+                <Col span={8}>
                   <Form.Item
                     name="password"
                     label="Password"

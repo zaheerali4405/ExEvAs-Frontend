@@ -1,15 +1,16 @@
 import { useEffect, useState } from "react";
 import {
-  Form, InputNumber, Switch, Checkbox, ColorPicker,
+  Form, InputNumber, Switch, Checkbox, ColorPicker, TimePicker,
   Button, Alert, Typography, Divider, Row, Col, Spin,
 } from "antd";
 import {
-  SafetyOutlined, LockOutlined, ClockCircleOutlined, BgColorsOutlined, TagsOutlined,
+  SafetyOutlined, LockOutlined, ClockCircleOutlined, BgColorsOutlined,
+  ScheduleOutlined, TeamOutlined,
 } from "@ant-design/icons";
+import dayjs from "dayjs";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import PageCard from "../../components/PageCard";
 import { getSystemSettings, updateSystemSettings } from "../../api/systemSettingsApi";
-import { getEventCategories, updateEventCategory } from "../../api/eventCategoriesApi";
 import { useTheme } from "../../context/ThemeContext";
 
 const { Title, Text } = Typography;
@@ -42,40 +43,12 @@ function SettingRow({ label, description, children }) {
 
 const toHex = (v) => (typeof v === "string" ? v : v?.toHexString?.() ?? v);
 
-// One row per Event Category / Exam Type — saves its color immediately (via
-// the entity's own PATCH endpoint) as soon as the picker closes, independent
-// of the rest of the System Settings form.
-function ColorRow({ label, color, onSave }) {
-  const [saving, setSaving] = useState(false);
-
-  const handleChangeComplete = async (value) => {
-    const hex = toHex(value);
-    if (hex === color) return;
-    setSaving(true);
-    try {
-      await onSave(hex);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Row align="middle" style={{ marginBottom: 12 }}>
-      <Col flex="1">
-        <Text style={{ display: "block" }}>{label}</Text>
-      </Col>
-      <Col style={{ marginLeft: 16 }}>
-        <ColorPicker
-          showText
-          format="hex"
-          value={color || "#2563EB"}
-          disabled={saving}
-          onChangeComplete={handleChangeComplete}
-        />
-      </Col>
-    </Row>
-  );
-}
+// Window-time fields are stored/sent as "HH:mm" strings (see
+// system-settings.service.ts's timeStringToDate/dateToTimeString), but the
+// TimePicker needs dayjs objects — converted at the load/submit boundary
+// only, same pattern as EventFormModal's startTime/endTime.
+const toTimeValue = (hhmm) => (hhmm ? dayjs(hhmm, "HH:mm") : null);
+const toTimeString = (v) => (v ? v.format("HH:mm") : null);
 
 export default function SystemSettingsPage() {
   const { updateColors } = useTheme();
@@ -84,32 +57,6 @@ export default function SystemSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-
-  const [eventCategories, setEventCategories] = useState([]);
-  const [colorsLoading, setColorsLoading] = useState(true);
-
-  useEffect(() => {
-    (async () => {
-      setColorsLoading(true);
-      try {
-        const { data } = await getEventCategories();
-        setEventCategories(data);
-      } catch (err) {
-        setError(err.response?.data?.message || "Could not load event categories.");
-      } finally {
-        setColorsLoading(false);
-      }
-    })();
-  }, []);
-
-  const handleEventCategoryColorSave = async (id, color) => {
-    try {
-      const { data } = await updateEventCategory(id, { color });
-      setEventCategories((prev) => prev.map((c) => (c.id === id ? data : c)));
-    } catch (err) {
-      setError(err.response?.data?.message || "Could not save event category color.");
-    }
-  };
 
   useEffect(() => {
     (async () => {
@@ -130,6 +77,18 @@ export default function SystemSettingsPage() {
           lightSecondaryBg:     data.lightSecondaryBg,
           darkPrimaryBg:        data.darkPrimaryBg,
           darkSecondaryBg:      data.darkSecondaryBg,
+          examMaxEventsPerDay:           data.examMaxEventsPerDay,
+          examMinDurationMinutes:        data.examMinDurationMinutes,
+          examMaxDurationMinutes:        data.examMaxDurationMinutes,
+          examMinGapMinutes:             data.examMinGapMinutes,
+          examWindowStartTime:           toTimeValue(data.examWindowStartTime),
+          examWindowEndTime:             toTimeValue(data.examWindowEndTime),
+          moderationMeetingMaxEventsPerDay:   data.moderationMeetingMaxEventsPerDay,
+          moderationMeetingMinDurationMinutes: data.moderationMeetingMinDurationMinutes,
+          moderationMeetingMaxDurationMinutes: data.moderationMeetingMaxDurationMinutes,
+          moderationMeetingMinGapMinutes:     data.moderationMeetingMinGapMinutes,
+          moderationMeetingWindowStartTime:   toTimeValue(data.moderationMeetingWindowStartTime),
+          moderationMeetingWindowEndTime:     toTimeValue(data.moderationMeetingWindowEndTime),
         });
       } catch (err) {
         setError(err.response?.data?.message || "Could not load system settings.");
@@ -144,7 +103,8 @@ export default function SystemSettingsPage() {
     setError("");
     setSuccess("");
     try {
-      // ColorPicker returns a Color object — convert to hex string
+      // ColorPicker returns a Color object — convert to hex string.
+      // TimePicker returns a dayjs object — convert to "HH:mm".
       const payload = {
         ...values,
         brandColor:       toHex(values.brandColor),
@@ -152,6 +112,10 @@ export default function SystemSettingsPage() {
         lightSecondaryBg: toHex(values.lightSecondaryBg),
         darkPrimaryBg:    toHex(values.darkPrimaryBg),
         darkSecondaryBg:  toHex(values.darkSecondaryBg),
+        examWindowStartTime: toTimeString(values.examWindowStartTime),
+        examWindowEndTime: toTimeString(values.examWindowEndTime),
+        moderationMeetingWindowStartTime: toTimeString(values.moderationMeetingWindowStartTime),
+        moderationMeetingWindowEndTime: toTimeString(values.moderationMeetingWindowEndTime),
       };
       const { data } = await updateSystemSettings(payload);
       // Propagate color changes to ThemeContext immediately
@@ -312,40 +276,90 @@ export default function SystemSettingsPage() {
               </SettingRow>
             </Section>
 
+            {/* ── Exam Rules ── */}
+            <Section icon={<ScheduleOutlined style={{ color: "#1AB394" }} />} title="Exam Rules">
+              <SettingRow label="Max Events Per Day" description="Leave blank for no limit.">
+                <Form.Item name="examMaxEventsPerDay" noStyle>
+                  <InputNumber min={1} style={{ width: 90 }} />
+                </Form.Item>
+              </SettingRow>
+
+              <SettingRow label="Min Duration" description="Leave blank for no minimum.">
+                <Form.Item name="examMinDurationMinutes" noStyle>
+                  <InputNumber min={1} style={{ width: 90 }} addonAfter="mins" />
+                </Form.Item>
+              </SettingRow>
+
+              <SettingRow label="Max Duration" description="Leave blank for no maximum.">
+                <Form.Item name="examMaxDurationMinutes" noStyle>
+                  <InputNumber min={1} style={{ width: 90 }} addonAfter="mins" />
+                </Form.Item>
+              </SettingRow>
+
+              <SettingRow label="Min Gap Between Events" description="Leave blank for no minimum gap.">
+                <Form.Item name="examMinGapMinutes" noStyle>
+                  <InputNumber min={1} style={{ width: 90 }} addonAfter="mins" />
+                </Form.Item>
+              </SettingRow>
+
+              <SettingRow label="Daily Window Start" description="Leave blank for no restriction.">
+                <Form.Item name="examWindowStartTime" noStyle>
+                  <TimePicker format="HH:mm" style={{ width: 110 }} />
+                </Form.Item>
+              </SettingRow>
+
+              <SettingRow label="Daily Window End" description="Leave blank for no restriction.">
+                <Form.Item name="examWindowEndTime" noStyle>
+                  <TimePicker format="HH:mm" style={{ width: 110 }} />
+                </Form.Item>
+              </SettingRow>
+            </Section>
+
+            {/* ── Moderation Meeting Rules ── */}
+            <Section icon={<TeamOutlined style={{ color: "#1AB394" }} />} title="Moderation Meeting Rules">
+              <SettingRow label="Max Events Per Day" description="Leave blank for no limit.">
+                <Form.Item name="moderationMeetingMaxEventsPerDay" noStyle>
+                  <InputNumber min={1} style={{ width: 90 }} />
+                </Form.Item>
+              </SettingRow>
+
+              <SettingRow label="Min Duration" description="Leave blank for no minimum.">
+                <Form.Item name="moderationMeetingMinDurationMinutes" noStyle>
+                  <InputNumber min={1} style={{ width: 90 }} addonAfter="mins" />
+                </Form.Item>
+              </SettingRow>
+
+              <SettingRow label="Max Duration" description="Leave blank for no maximum.">
+                <Form.Item name="moderationMeetingMaxDurationMinutes" noStyle>
+                  <InputNumber min={1} style={{ width: 90 }} addonAfter="mins" />
+                </Form.Item>
+              </SettingRow>
+
+              <SettingRow label="Min Gap Between Events" description="Leave blank for no minimum gap.">
+                <Form.Item name="moderationMeetingMinGapMinutes" noStyle>
+                  <InputNumber min={1} style={{ width: 90 }} addonAfter="mins" />
+                </Form.Item>
+              </SettingRow>
+
+              <SettingRow label="Daily Window Start" description="Leave blank for no restriction.">
+                <Form.Item name="moderationMeetingWindowStartTime" noStyle>
+                  <TimePicker format="HH:mm" style={{ width: 110 }} />
+                </Form.Item>
+              </SettingRow>
+
+              <SettingRow label="Daily Window End" description="Leave blank for no restriction.">
+                <Form.Item name="moderationMeetingWindowEndTime" noStyle>
+                  <TimePicker format="HH:mm" style={{ width: 110 }} />
+                </Form.Item>
+              </SettingRow>
+            </Section>
+
             <div style={{ display: "flex", justifyContent: "flex-end" }}>
               <Button type="primary" htmlType="submit" loading={saving}>
                 Save Settings
               </Button>
             </div>
           </Form>
-        )}
-      </PageCard>
-
-      <PageCard style={{ maxWidth: 680, padding: 24, marginTop: 24 }}>
-        <Title level={5} style={{ marginTop: 0, marginBottom: 4 }}>
-          <TagsOutlined style={{ color: "#1AB394", marginRight: 6 }} />
-          Event Category Colors
-        </Title>
-        <Text type="secondary" style={{ fontSize: 13 }}>
-          These colors are used for Timetable blocks and the legend. Changes save immediately.
-        </Text>
-        <Divider />
-
-        {colorsLoading ? (
-          <div style={{ textAlign: "center", padding: 40 }}>
-            <Spin size="large" />
-          </div>
-        ) : eventCategories.length === 0 ? (
-          <Text type="secondary" style={{ fontSize: 13 }}>No event categories found.</Text>
-        ) : (
-          eventCategories.map((c) => (
-            <ColorRow
-              key={c.id}
-              label={c.name}
-              color={c.color}
-              onSave={(hex) => handleEventCategoryColorSave(c.id, hex)}
-            />
-          ))
         )}
       </PageCard>
     </DashboardLayout>

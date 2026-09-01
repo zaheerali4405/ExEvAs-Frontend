@@ -7,7 +7,6 @@ import { EditOutlined, DownloadOutlined } from "@ant-design/icons";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import PageCard from "../../components/PageCard";
 import { getDegreeLevels, createDegreeLevel, updateDegreeLevel, setDegreeLevelStatus } from "../../api/degreeLevelsApi";
-import { getInstitutes } from "../../api/institutesApi";
 import { exportToExcel } from "../../utils/exportExcel";
 import { useAuth } from "../../context/AuthContext";
 
@@ -16,19 +15,18 @@ const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 const TERM_SYSTEM_OPTIONS = [
   { value: "annual",   label: "Annual" },
   { value: "semester", label: "Semester" },
+  { value: "mixed",    label: "Mixed" },
 ];
 
 const searchableColumns = [
   { value: "fullName",   label: "Full Name" },
   { value: "shortName",  label: "Short Name" },
-  { value: "institute",  label: "Institute" },
   { value: "termSystem", label: "Term System" },
   { value: "status",     label: "Status" },
 ];
 
 const getFieldValue = (item, key) => {
-  if (key === "status")    return item.isActive ? "Active" : "Inactive";
-  if (key === "institute") return item.institute?.fullName ?? "";
+  if (key === "status") return item.isActive ? "Active" : "Inactive";
   return item[key] ?? "";
 };
 
@@ -46,7 +44,6 @@ export default function DegreeLevelsList() {
   const isMobile = useIsMobile();
   const { can } = useAuth();
   const [degreeLevels, setDegreeLevels] = useState([]);
-  const [institutes, setInstitutes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [searchBy, setSearchBy] = useState(null);
@@ -70,17 +67,7 @@ export default function DegreeLevelsList() {
       } finally {
         setLoading(false);
       }
-
-      if (can("institute.read-all")) {
-        try {
-          const { data } = await getInstitutes();
-          setInstitutes(data);
-        } catch {
-          // Non-fatal: the institute dropdown just stays empty.
-        }
-      }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filtered = useMemo(() => {
@@ -131,10 +118,9 @@ export default function DegreeLevelsList() {
   const openEditModal = (record) => {
     setEditingRecord(record);
     form.setFieldsValue({
-      fullName:    record.fullName,
-      shortName:   record.shortName,
-      instituteId: record.instituteId,
-      termSystem:  record.termSystem,
+      fullName:   record.fullName,
+      shortName:  record.shortName,
+      termSystem: record.termSystem,
     });
     setModalOpen(true);
   };
@@ -165,7 +151,6 @@ export default function DegreeLevelsList() {
         { label: "S.No.",       accessor: (_, i) => i + 1 },
         { label: "Full Name",   accessor: (r) => r.fullName },
         { label: "Short Name",  accessor: (r) => r.shortName || "" },
-        { label: "Institute",   accessor: (r) => r.institute?.fullName || "" },
         { label: "Term System", accessor: (r) => TERM_SYSTEM_OPTIONS.find((t) => t.value === r.termSystem)?.label || r.termSystem },
         { label: "Status",      accessor: (r) => (r.isActive ? "Active" : "Inactive") },
       ],
@@ -192,12 +177,6 @@ export default function DegreeLevelsList() {
       dataIndex: "shortName",
       width: 120,
       render: (val) => val || "—",
-    },
-    {
-      title: "Institute",
-      width: 180,
-      render: (_, r) => r.institute?.fullName ?? "—",
-      sorter: (a, b) => (a.institute?.fullName ?? "").localeCompare(b.institute?.fullName ?? ""),
     },
     {
       title: "Term System",
@@ -240,11 +219,6 @@ export default function DegreeLevelsList() {
       ),
     },
   ];
-
-  const instituteOptions = useMemo(
-    () => institutes.filter((i) => i.isActive).map((i) => ({ value: i.id, label: i.fullName })),
-    [institutes]
-  );
 
   return (
     <DashboardLayout onAdd={can("degree-level.create") ? openAddModal : undefined}>
@@ -355,21 +329,6 @@ export default function DegreeLevelsList() {
             rules={[{ max: 50, message: "Maximum 50 characters." }]}
           >
             <Input placeholder="e.g. Y4" />
-          </Form.Item>
-
-          <Form.Item
-            name="instituteId"
-            label="Institute"
-            rules={[{ required: true, message: "Please select an institute." }]}
-          >
-            <Select
-              placeholder="Select institute"
-              options={instituteOptions}
-              showSearch
-              filterOption={(input, option) =>
-                option.label.toLowerCase().includes(input.toLowerCase())
-              }
-            />
           </Form.Item>
 
           <Form.Item

@@ -8,22 +8,19 @@ import dayjs from "dayjs";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import PageCard from "../../components/PageCard";
 import { getSessions, createSession, updateSession, setSessionStatus } from "../../api/sessionsApi";
-import { getInstitutes } from "../../api/institutesApi";
 import { exportToExcel } from "../../utils/exportExcel";
 import { useAuth } from "../../context/AuthContext";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
 const searchableColumns = [
-  { value: "name",      label: "Name" },
-  { value: "profYear",  label: "Prof Year" },
-  { value: "institute", label: "Institute" },
-  { value: "status",    label: "Status" },
+  { value: "name",     label: "Name" },
+  { value: "profYear", label: "Prof Year" },
+  { value: "status",   label: "Status" },
 ];
 
 const getFieldValue = (item, key) => {
-  if (key === "status")    return item.isActive ? "Active" : "Inactive";
-  if (key === "institute") return item.institute?.fullName ?? "";
+  if (key === "status") return item.isActive ? "Active" : "Inactive";
   return item[key] ?? "";
 };
 
@@ -41,7 +38,6 @@ export default function SessionsList() {
   const isMobile = useIsMobile();
   const { can } = useAuth();
   const [sessions, setSessions] = useState([]);
-  const [institutes, setInstitutes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [searchBy, setSearchBy] = useState(null);
@@ -64,15 +60,6 @@ export default function SessionsList() {
         setError(err.response?.data?.message || "Could not load sessions.");
       } finally {
         setLoading(false);
-      }
-
-      if (can("institute.read-all")) {
-        try {
-          const { data } = await getInstitutes();
-          setInstitutes(data);
-        } catch {
-          // Non-fatal: the institute dropdown just stays empty.
-        }
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -126,12 +113,11 @@ export default function SessionsList() {
   const openEditModal = (record) => {
     setEditingRecord(record);
     form.setFieldsValue({
-      name:        record.name,
-      profYear:    record.profYear,
-      startDate:   record.startDate ? dayjs(record.startDate) : null,
-      endDate:     record.endDate ? dayjs(record.endDate) : null,
-      isCurrent:   record.isCurrent,
-      instituteId: record.instituteId,
+      name:      record.name,
+      profYear:  record.profYear,
+      startDate: record.startDate ? dayjs(record.startDate) : null,
+      endDate:   record.endDate ? dayjs(record.endDate) : null,
+      isCurrent: record.isCurrent,
     });
     setModalOpen(true);
   };
@@ -167,7 +153,6 @@ export default function SessionsList() {
         { label: "S.No.",      accessor: (_, i) => i + 1 },
         { label: "Name",       accessor: (r) => r.name },
         { label: "Prof Year",  accessor: (r) => r.profYear },
-        { label: "Institute",  accessor: (r) => r.institute?.fullName || "" },
         { label: "Start Date", accessor: (r) => r.startDate ? dayjs(r.startDate).format("DD MMM YYYY") : "" },
         { label: "End Date",   accessor: (r) => r.endDate ? dayjs(r.endDate).format("DD MMM YYYY") : "" },
         { label: "Is Current", accessor: (r) => (r.isCurrent ? "Yes" : "No") },
@@ -196,12 +181,6 @@ export default function SessionsList() {
       dataIndex: "profYear",
       width: 110,
       sorter: (a, b) => a.profYear - b.profYear,
-    },
-    {
-      title: "Institute",
-      width: 200,
-      render: (_, r) => r.institute?.fullName ?? "—",
-      sorter: (a, b) => (a.institute?.fullName ?? "").localeCompare(b.institute?.fullName ?? ""),
     },
     {
       title: "Start Date",
@@ -256,11 +235,6 @@ export default function SessionsList() {
       ),
     },
   ];
-
-  const instituteOptions = useMemo(
-    () => institutes.filter((i) => i.isActive).map((i) => ({ value: i.id, label: i.fullName })),
-    [institutes]
-  );
 
   return (
     <DashboardLayout onAdd={can("session.create") ? openAddModal : undefined}>
@@ -373,21 +347,6 @@ export default function SessionsList() {
             extra="The year used in Event naming, e.g. 2026."
           >
             <InputNumber placeholder="e.g. 2026" min={1900} max={2200} style={{ width: "100%" }} />
-          </Form.Item>
-
-          <Form.Item
-            name="instituteId"
-            label="Institute"
-            rules={[{ required: true, message: "Please select an institute." }]}
-          >
-            <Select
-              placeholder="Select institute"
-              options={instituteOptions}
-              showSearch
-              filterOption={(input, option) =>
-                option.label.toLowerCase().includes(input.toLowerCase())
-              }
-            />
           </Form.Item>
 
           <Form.Item

@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
 import {
   Table, Input, Select, Button, Tag, Alert, Space, Tooltip,
-  Pagination, Modal, Form,
+  Pagination, Modal, Form, Descriptions,
 } from "antd";
-import { EditOutlined, DownloadOutlined } from "@ant-design/icons";
+import { EditOutlined, DownloadOutlined, EyeOutlined } from "@ant-design/icons";
+import dayjs from "dayjs";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import PageCard from "../../components/PageCard";
 import { getPrograms, createProgram, updateProgram, setProgramStatus } from "../../api/programsApi";
@@ -16,6 +17,7 @@ const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 const TERM_SYSTEM_OPTIONS = [
   { value: "annual",   label: "Annual" },
   { value: "semester", label: "Semester" },
+  { value: "mixed",    label: "Mixed" },
 ];
 
 const AFFILIATED_WITH_OPTIONS = [
@@ -23,20 +25,34 @@ const AFFILIATED_WITH_OPTIONS = [
   { value: "UHS",  label: "UHS" },
 ];
 
-const searchableColumns = [
-  { value: "fullName",       label: "Full Name" },
-  { value: "shortName",      label: "Short Name" },
-  { value: "institute",      label: "Institute" },
-  { value: "termSystem",     label: "Term System" },
-  { value: "affiliatedWith", label: "Affiliated With" },
-  { value: "status",         label: "Status" },
+const PROGRAM_TYPE_OPTIONS = [
+  { value: "graduate",     label: "Graduate" },
+  { value: "postgraduate", label: "Postgraduate" },
 ];
+
+const PROGRAM_TYPE_LABELS = {
+  graduate:     "Graduate",
+  postgraduate: "Postgraduate",
+};
+
+const searchableColumns = [
+  { value: "fullName",  label: "Full Name" },
+  { value: "shortName", label: "Short Name" },
+  { value: "code",      label: "Code" },
+  { value: "institute", label: "Institute" },
+  { value: "status",    label: "Status" },
+];
+
+const instituteLabel = (institute) => (institute ? institute.shortName || institute.fullName : "");
 
 const getFieldValue = (item, key) => {
   if (key === "status")    return item.isActive ? "Active" : "Inactive";
-  if (key === "institute") return item.institute?.fullName ?? "";
+  if (key === "institute") return instituteLabel(item.institute);
   return item[key] ?? "";
 };
+
+const formatDateTime = (val) => (val ? dayjs(val).format("DD MMM YYYY, hh:mm A") : "—");
+const userLabel = (user) => (user ? user.username || user.email : "—");
 
 function useIsMobile(breakpoint = 576) {
   const [isMobile, setIsMobile] = useState(window.innerWidth < breakpoint);
@@ -62,6 +78,7 @@ export default function ProgramsList() {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
+  const [viewRecord, setViewRecord] = useState(null);
   const [form] = Form.useForm();
 
   useEffect(() => {
@@ -139,9 +156,12 @@ export default function ProgramsList() {
     form.setFieldsValue({
       fullName:       record.fullName,
       shortName:      record.shortName,
+      code:           record.code,
       instituteId:    record.instituteId,
       termSystem:     record.termSystem,
       affiliatedWith: record.affiliatedWith,
+      type:           record.type,
+      notes:          record.notes,
     });
     setModalOpen(true);
   };
@@ -172,9 +192,11 @@ export default function ProgramsList() {
         { label: "S.No.",           accessor: (_, i) => i + 1 },
         { label: "Full Name",       accessor: (r) => r.fullName },
         { label: "Short Name",      accessor: (r) => r.shortName || "" },
-        { label: "Institute",       accessor: (r) => r.institute?.fullName || "" },
+        { label: "Code",            accessor: (r) => r.code },
+        { label: "Institute",       accessor: (r) => instituteLabel(r.institute) },
         { label: "Term System",     accessor: (r) => TERM_SYSTEM_OPTIONS.find((t) => t.value === r.termSystem)?.label || r.termSystem },
         { label: "Affiliated With", accessor: (r) => r.affiliatedWith },
+        { label: "Type",            accessor: (r) => PROGRAM_TYPE_LABELS[r.type] ?? r.type },
         { label: "Status",          accessor: (r) => (r.isActive ? "Active" : "Inactive") },
       ],
       "programs"
@@ -202,21 +224,15 @@ export default function ProgramsList() {
       render: (val) => val || "—",
     },
     {
+      title: "Code",
+      dataIndex: "code",
+      width: 90,
+    },
+    {
       title: "Institute",
       width: 180,
-      render: (_, r) => r.institute?.fullName ?? "—",
-      sorter: (a, b) => (a.institute?.fullName ?? "").localeCompare(b.institute?.fullName ?? ""),
-    },
-    {
-      title: "Term System",
-      dataIndex: "termSystem",
-      width: 130,
-      render: (val) => TERM_SYSTEM_OPTIONS.find((t) => t.value === val)?.label ?? val,
-    },
-    {
-      title: "Affiliated With",
-      dataIndex: "affiliatedWith",
-      width: 140,
+      render: (_, r) => instituteLabel(r.institute) || "—",
+      sorter: (a, b) => instituteLabel(a.institute).localeCompare(instituteLabel(b.institute)),
     },
     {
       title: "Status",
@@ -240,10 +256,13 @@ export default function ProgramsList() {
     },
     {
       title: "Actions",
-      width: 90,
+      width: 100,
       align: "center",
       render: (_, record) => (
         <Space>
+          <Tooltip title="View Details">
+            <Button size="small" icon={<EyeOutlined />} onClick={() => setViewRecord(record)} />
+          </Tooltip>
           {can("program.update") && (
             <Tooltip title="Edit">
               <Button size="small" icon={<EditOutlined />} onClick={() => openEditModal(record)} />
@@ -375,6 +394,18 @@ export default function ProgramsList() {
           </Form.Item>
 
           <Form.Item
+            name="code"
+            label="Code"
+            extra="Even shorter than Short Name — used as the roll-number prefix for students."
+            rules={[
+              { required: true, message: "Please enter a code." },
+              { max: 10, message: "Maximum 10 characters." },
+            ]}
+          >
+            <Input placeholder="e.g. M" />
+          </Form.Item>
+
+          <Form.Item
             name="instituteId"
             label="Institute"
             rules={[{ required: true, message: "Please select an institute." }]}
@@ -404,7 +435,59 @@ export default function ProgramsList() {
           >
             <Select placeholder="Select affiliating body" options={AFFILIATED_WITH_OPTIONS} />
           </Form.Item>
+
+          <Form.Item
+            name="type"
+            label="Type"
+            rules={[{ required: true, message: "Please select a program type." }]}
+          >
+            <Select placeholder="Select program type" options={PROGRAM_TYPE_OPTIONS} />
+          </Form.Item>
+
+          <Form.Item name="notes" label="Notes">
+            <Input.TextArea placeholder="Notes" autoSize={{ minRows: 2, maxRows: 6 }} />
+          </Form.Item>
         </Form>
+      </Modal>
+
+      {/* View Details Modal */}
+      <Modal
+        title="Program Details"
+        open={!!viewRecord}
+        onCancel={() => setViewRecord(null)}
+        footer={null}
+        centered
+        width={600}
+      >
+        {viewRecord && (
+          <Descriptions
+            bordered
+            column={1}
+            size="small"
+            style={{ marginTop: 16 }}
+            labelStyle={{ fontWeight: 600, width: 160 }}
+          >
+            <Descriptions.Item label="Full Name">{viewRecord.fullName}</Descriptions.Item>
+            <Descriptions.Item label="Short Name">{viewRecord.shortName || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Code">{viewRecord.code}</Descriptions.Item>
+            <Descriptions.Item label="Institute">{instituteLabel(viewRecord.institute) || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Term System">
+              {TERM_SYSTEM_OPTIONS.find((t) => t.value === viewRecord.termSystem)?.label ?? viewRecord.termSystem}
+            </Descriptions.Item>
+            <Descriptions.Item label="Affiliated With">{viewRecord.affiliatedWith}</Descriptions.Item>
+            <Descriptions.Item label="Type">{PROGRAM_TYPE_LABELS[viewRecord.type] ?? viewRecord.type}</Descriptions.Item>
+            <Descriptions.Item label="Notes">{viewRecord.notes || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Status">
+              <Tag color={viewRecord.isActive ? "success" : "default"}>
+                {viewRecord.isActive ? "Active" : "Inactive"}
+              </Tag>
+            </Descriptions.Item>
+            <Descriptions.Item label="Created At">{formatDateTime(viewRecord.createdAt)}</Descriptions.Item>
+            <Descriptions.Item label="Created By">{userLabel(viewRecord.creator)}</Descriptions.Item>
+            <Descriptions.Item label="Updated At">{formatDateTime(viewRecord.updatedAt)}</Descriptions.Item>
+            <Descriptions.Item label="Updated By">{userLabel(viewRecord.updater)}</Descriptions.Item>
+          </Descriptions>
+        )}
       </Modal>
     </DashboardLayout>
   );

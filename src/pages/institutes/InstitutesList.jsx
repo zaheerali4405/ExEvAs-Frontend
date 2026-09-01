@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo } from "react";
 import {
   Table, Input, Select, Button, Tag, Alert, Space, Tooltip,
-  Pagination, Modal, Form, InputNumber,
+  Pagination, Modal, Form, InputNumber, Row, Col, Descriptions,
 } from "antd";
-import { EditOutlined, DownloadOutlined } from "@ant-design/icons";
+import { EditOutlined, DownloadOutlined, EyeOutlined } from "@ant-design/icons";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import PageCard from "../../components/PageCard";
 import { getInstitutes, createInstitute, updateInstitute, setInstituteStatus } from "../../api/institutesApi";
@@ -19,9 +19,11 @@ const searchableColumns = [
   { value: "status",    label: "Status" },
 ];
 
+const parentLabel = (parent) => (parent ? parent.shortName || parent.fullName : "");
+
 const getFieldValue = (item, key) => {
   if (key === "status") return item.isActive ? "Active" : "Inactive";
-  if (key === "parent") return item.parent?.fullName ?? "";
+  if (key === "parent") return parentLabel(item.parent);
   return item[key] ?? "";
 };
 
@@ -48,6 +50,7 @@ export default function InstitutesList() {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
+  const [viewRecord, setViewRecord] = useState(null);
   const [form] = Form.useForm();
 
   useEffect(() => {
@@ -151,7 +154,7 @@ export default function InstitutesList() {
         { label: "S.No.",            accessor: (_, i) => i + 1 },
         { label: "Full Name",        accessor: (r) => r.fullName },
         { label: "Short Name",       accessor: (r) => r.shortName || "" },
-        { label: "Parent",           accessor: (r) => r.parent?.fullName || "" },
+        { label: "Parent",           accessor: (r) => parentLabel(r.parent) },
         { label: "Established Year", accessor: (r) => r.establishedYear || "" },
         { label: "Email",            accessor: (r) => r.email || "" },
         { label: "Phone",            accessor: (r) => r.phone || "" },
@@ -185,31 +188,8 @@ export default function InstitutesList() {
     {
       title: "Parent",
       width: 200,
-      render: (_, r) => r.parent?.fullName ?? "—",
-      sorter: (a, b) => (a.parent?.fullName ?? "").localeCompare(b.parent?.fullName ?? ""),
-    },
-    {
-      title: "Established Year",
-      dataIndex: "establishedYear",
-      width: 140,
-      render: (val) => val || "—",
-      sorter: (a, b) => (a.establishedYear || 0) - (b.establishedYear || 0),
-    },
-    {
-      title: "Email",
-      dataIndex: "email",
-      render: (val) => val || "—",
-    },
-    {
-      title: "Phone",
-      dataIndex: "phone",
-      width: 140,
-      render: (val) => val || "—",
-    },
-    {
-      title: "Address",
-      dataIndex: "address",
-      render: (val) => val || "—",
+      render: (_, r) => parentLabel(r.parent) || "—",
+      sorter: (a, b) => parentLabel(a.parent).localeCompare(parentLabel(b.parent)),
     },
     {
       title: "Status",
@@ -233,10 +213,13 @@ export default function InstitutesList() {
     },
     {
       title: "Actions",
-      width: 90,
+      width: 100,
       align: "center",
       render: (_, record) => (
         <Space>
+          <Tooltip title="View Details">
+            <Button size="small" icon={<EyeOutlined />} onClick={() => setViewRecord(record)} />
+          </Tooltip>
           {can("institute.update") && (
             <Tooltip title="Edit">
               <Button size="small" icon={<EditOutlined />} onClick={() => openEditModal(record)} />
@@ -338,7 +321,7 @@ export default function InstitutesList() {
         confirmLoading={modalLoading}
         destroyOnClose
         centered
-        width={560}
+        width={640}
       >
         <Form
           form={form}
@@ -347,57 +330,105 @@ export default function InstitutesList() {
           requiredMark={false}
           style={{ marginTop: 16 }}
         >
-          <Form.Item
-            name="fullName"
-            label="Full Name"
-            rules={[
-              { required: true, message: "Please enter the full name." },
-              { max: 200, message: "Maximum 200 characters." },
-            ]}
-          >
-            <Input placeholder="e.g. CMH Lahore Medical College and Institute of Dentistry" />
-          </Form.Item>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="fullName"
+                label="Full Name"
+                rules={[
+                  { required: true, message: "Please enter the full name." },
+                  { max: 200, message: "Maximum 200 characters." },
+                ]}
+              >
+                <Input placeholder="e.g. CMH Lahore Medical College and Institute of Dentistry" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="shortName"
+                label="Short Name"
+                rules={[{ max: 50, message: "Maximum 50 characters." }]}
+              >
+                <Input placeholder="e.g. LMC" />
+              </Form.Item>
+            </Col>
+          </Row>
 
-          <Form.Item
-            name="shortName"
-            label="Short Name"
-            rules={[{ max: 50, message: "Maximum 50 characters." }]}
-          >
-            <Input placeholder="e.g. LMC" />
-          </Form.Item>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="parentId"
+                label="Parent"
+                extra="Leave empty to add this as a top-level institution."
+              >
+                <Select
+                  placeholder="No parent (top-level)"
+                  allowClear
+                  options={parentOptions}
+                  showSearch
+                  filterOption={(input, option) =>
+                    option.label.toLowerCase().includes(input.toLowerCase())
+                  }
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="establishedYear" label="Established Year">
+                <InputNumber placeholder="e.g. 1971" min={1800} max={2200} style={{ width: "100%" }} />
+              </Form.Item>
+            </Col>
+          </Row>
 
-          <Form.Item
-            name="parentId"
-            label="Parent"
-            extra="Leave empty to add this as a top-level institution."
-          >
-            <Select
-              placeholder="No parent (top-level)"
-              allowClear
-              options={parentOptions}
-              showSearch
-              filterOption={(input, option) =>
-                option.label.toLowerCase().includes(input.toLowerCase())
-              }
-            />
-          </Form.Item>
-
-          <Form.Item name="establishedYear" label="Established Year">
-            <InputNumber placeholder="e.g. 1971" min={1800} max={2200} style={{ width: "100%" }} />
-          </Form.Item>
-
-          <Form.Item name="email" label="Email" rules={[{ type: "email", message: "Enter a valid email." }]}>
-            <Input placeholder="Contact email" />
-          </Form.Item>
-
-          <Form.Item name="phone" label="Phone">
-            <Input placeholder="Contact phone" />
-          </Form.Item>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="email" label="Email" rules={[{ type: "email", message: "Enter a valid email." }]}>
+                <Input placeholder="Contact email" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="phone" label="Phone">
+                <Input placeholder="Contact phone" />
+              </Form.Item>
+            </Col>
+          </Row>
 
           <Form.Item name="address" label="Address">
             <Input.TextArea placeholder="Address" autoSize={{ minRows: 2, maxRows: 4 }} />
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* View Details Modal */}
+      <Modal
+        title="Institute Details"
+        open={!!viewRecord}
+        onCancel={() => setViewRecord(null)}
+        footer={null}
+        centered
+        width={600}
+      >
+        {viewRecord && (
+          <Descriptions
+            bordered
+            column={1}
+            size="small"
+            style={{ marginTop: 16 }}
+            labelStyle={{ fontWeight: 600, width: 160 }}
+          >
+            <Descriptions.Item label="Full Name">{viewRecord.fullName}</Descriptions.Item>
+            <Descriptions.Item label="Short Name">{viewRecord.shortName || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Parent">{parentLabel(viewRecord.parent) || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Established Year">{viewRecord.establishedYear || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Email">{viewRecord.email || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Phone">{viewRecord.phone || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Address">{viewRecord.address || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Status">
+              <Tag color={viewRecord.isActive ? "success" : "default"}>
+                {viewRecord.isActive ? "Active" : "Inactive"}
+              </Tag>
+            </Descriptions.Item>
+          </Descriptions>
+        )}
       </Modal>
     </DashboardLayout>
   );

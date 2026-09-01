@@ -4,6 +4,10 @@ import { useLocation, Link } from 'react-router-dom';
 
 const { Title } = Typography;
 
+// Naive plural -> singular for the "Add {Thing}" button label. Handles the
+// regular "-s" case plus "-sses"/"-xes"/"-ches"/"-shes"/"-zes" (e.g. "Classes" -> "Class").
+const singularize = (title) => title.replace(/(ss|x|ch|sh|z)es$/i, '$1').replace(/([^s])s$/i, '$1');
+
 const routeConfig = {
   '/dashboard':        { title: 'Dashboard',        addPath: null },
   '/users':            { title: 'Users',             addPath: '/users/add' },
@@ -21,12 +25,12 @@ const routeConfig = {
   '/classes':          { title: 'Classes',            addPath: '/classes/add' },
   '/exam-types':       { title: 'Exam Types',         addPath: '/exam-types/add' },
   '/course-papers':    { title: 'Course/Papers',      addPath: '/course-papers/add' },
-  '/venue-categories': { title: 'Venue Categories',   addPath: '/venue-categories/add' },
   '/venues':           { title: 'Venues',            addPath: '/venues/add' },
   '/equipment':        { title: 'Equipment',         addPath: '/equipment/add' },
-  '/event-categories': { title: 'Event Categories',  addPath: '/event-categories/add' },
   '/events':           { title: 'Events',            addPath: '/events/add' },
-  '/timetable':        { title: 'Timetable',         addPath: null },
+  '/datesheet':        { title: 'Datesheet',          addPath: null },
+  '/moderation-meetings': { title: 'Moderation Meetings', addPath: '/moderation-meetings/add' },
+  '/moderation-meetings-calendar': { title: 'Moderation Meeting Calendar', addPath: null },
   '/role-permissions':  { title: 'Role Permissions',  addPath: null },
   '/designation-roles': { title: 'Designation Roles', addPath: null },
   '/user-roles':         { title: 'User Roles',         addPath: null },
@@ -35,6 +39,9 @@ const routeConfig = {
   '/change-password':  { title: 'Change Password',   addPath: null },
   '/settings':         { title: 'Settings',          addPath: null },
   '/system-settings':  { title: 'System Settings',   addPath: null },
+  '/notification-templates': { title: 'Notification Templates', addPath: '/notification-templates/add' },
+  '/notifications':    { title: 'Notifications',     addPath: '/notifications/add' },
+  '/my-notifications': { title: 'My Notifications',  addPath: null },
 };
 
 const segmentLabels = {
@@ -54,16 +61,19 @@ const segmentLabels = {
   classes:            'Classes',
   'exam-types':       'Exam Types',
   'course-papers':    'Course/Papers',
-  'venue-categories': 'Venue Categories',
   venues:             'Venues',
   equipment:          'Equipment',
-  'event-categories': 'Event Categories',
   events:             'Events',
-  timetable:          'Timetable',
+  datesheet:          'Datesheet',
+  'moderation-meetings': 'Moderation Meetings',
+  'moderation-meetings-calendar': 'Moderation Meeting Calendar',
   profile:            'My Profile',
   'change-password':  'Change Password',
   settings:           'Settings',
   'system-settings':  'System Settings',
+  'notification-templates': 'Notification Templates',
+  notifications:      'Notifications',
+  'my-notifications': 'My Notifications',
   'role-permissions':  'Role Permissions',
   'designation-roles': 'Designation Roles',
   'user-roles':         'User Roles',
@@ -133,7 +143,7 @@ export default function SubHeader({ onAdd, headerAction }) {
           icon={<PlusOutlined />}
           onClick={onAdd}
         >
-          Add {config.title.replace(/s$/i, '')}
+          Add {singularize(config.title)}
         </Button>
       )}
     </div>

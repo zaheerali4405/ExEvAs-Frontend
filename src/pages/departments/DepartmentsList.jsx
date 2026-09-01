@@ -20,9 +20,11 @@ const searchableColumns = [
   { value: "status",    label: "Status" },
 ];
 
+const instituteLabel = (institute) => (institute ? institute.shortName || institute.fullName : "");
+
 const getFieldValue = (item, key) => {
   if (key === "status")    return item.isActive ? "Active" : "Inactive";
-  if (key === "institute") return item.institute?.fullName ?? "";
+  if (key === "institute") return instituteLabel(item.institute);
   if (key === "parent")    return item.parent?.name ?? "";
   return item[key] ?? "";
 };
@@ -44,6 +46,7 @@ export default function DepartmentsList() {
   const [institutes, setInstitutes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [filterInstituteId, setFilterInstituteId] = useState(null);
   const [searchBy, setSearchBy] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -79,18 +82,21 @@ export default function DepartmentsList() {
   }, []);
 
   const filtered = useMemo(() => {
-    if (!searchTerm.trim()) return departments;
+    const scoped = filterInstituteId
+      ? departments.filter((item) => item.instituteId === filterInstituteId)
+      : departments;
+    if (!searchTerm.trim()) return scoped;
     const term = searchTerm.toLowerCase();
-    return departments.filter((item) => {
+    return scoped.filter((item) => {
       if (!searchBy)
         return searchableColumns.some((col) =>
           String(getFieldValue(item, col.value)).toLowerCase().includes(term)
         );
       return String(getFieldValue(item, searchBy)).toLowerCase().includes(term);
     });
-  }, [departments, searchBy, searchTerm]);
+  }, [departments, filterInstituteId, searchBy, searchTerm]);
 
-  useEffect(() => { setCurrentPage(1); }, [searchTerm, searchBy, pageSize]);
+  useEffect(() => { setCurrentPage(1); }, [filterInstituteId, searchTerm, searchBy, pageSize]);
 
   const handleToggle = (record) => {
     const activate = !record.isActive;
@@ -159,7 +165,7 @@ export default function DepartmentsList() {
       [
         { label: "S.No.",     accessor: (_, i) => i + 1 },
         { label: "Name",      accessor: (r) => r.name },
-        { label: "Institute", accessor: (r) => r.institute?.fullName || "" },
+        { label: "Institute", accessor: (r) => instituteLabel(r.institute) },
         { label: "Parent",    accessor: (r) => r.parent?.name || "" },
         { label: "Status",    accessor: (r) => (r.isActive ? "Active" : "Inactive") },
       ],
@@ -184,8 +190,8 @@ export default function DepartmentsList() {
     {
       title: "Institute",
       width: 220,
-      render: (_, r) => r.institute?.fullName ?? "—",
-      sorter: (a, b) => (a.institute?.fullName ?? "").localeCompare(b.institute?.fullName ?? ""),
+      render: (_, r) => instituteLabel(r.institute) || "—",
+      sorter: (a, b) => instituteLabel(a.institute).localeCompare(instituteLabel(b.institute)),
     },
     {
       title: "Parent",
@@ -234,6 +240,11 @@ export default function DepartmentsList() {
     [institutes]
   );
 
+  const instituteFilterOptions = useMemo(
+    () => institutes.filter((i) => i.isActive).map((i) => ({ value: i.id, label: instituteLabel(i) })),
+    [institutes]
+  );
+
   const parentOptions = useMemo(
     () =>
       departments
@@ -257,6 +268,16 @@ export default function DepartmentsList() {
 
       <PageCard>
         <div className="list-toolbar">
+          <Select
+            placeholder="Filter by institute"
+            allowClear
+            options={instituteFilterOptions}
+            value={filterInstituteId}
+            onChange={(val) => setFilterInstituteId(val ?? null)}
+            showSearch
+            filterOption={(input, option) => option.label.toLowerCase().includes(input.toLowerCase())}
+            style={{ width: "100%" }}
+          />
           <Select
             placeholder="Search by"
             allowClear

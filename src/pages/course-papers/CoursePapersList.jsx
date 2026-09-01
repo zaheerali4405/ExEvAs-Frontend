@@ -1,16 +1,17 @@
 import { useState, useEffect, useMemo } from "react";
 import {
   Table, Input, Select, Button, Tag, Alert, Space, Tooltip,
-  Pagination, Modal, Form, Checkbox,
+  Pagination, Modal, Form, Checkbox, Row, Col, Descriptions,
 } from "antd";
-import { EditOutlined, DownloadOutlined } from "@ant-design/icons";
+import { EditOutlined, DownloadOutlined, EyeOutlined } from "@ant-design/icons";
+import dayjs from "dayjs";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import PageCard from "../../components/PageCard";
 import { getCoursePapers, createCoursePaper, updateCoursePaper, setCoursePaperStatus } from "../../api/coursePapersApi";
 import { getPrograms } from "../../api/programsApi";
 import { getDegreeLevels } from "../../api/degreeLevelsApi";
-import { getSessions } from "../../api/sessionsApi";
 import { getSubjects } from "../../api/subjectsApi";
+import { getExamTypes } from "../../api/examTypesApi";
 import { getInstitutes } from "../../api/institutesApi";
 import { exportToExcel } from "../../utils/exportExcel";
 import { useAuth } from "../../context/AuthContext";
@@ -18,21 +19,31 @@ import { useAuth } from "../../context/AuthContext";
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
 const searchableColumns = [
-  { value: "fullName",    label: "Full Name" },
-  { value: "shortName",   label: "Short Name" },
-  { value: "program",     label: "Program" },
-  { value: "degreeLevel", label: "Degree Level" },
-  { value: "session",     label: "Session" },
-  { value: "status",      label: "Status" },
+  { value: "fullName",  label: "Full Name" },
+  { value: "shortName", label: "Short Name" },
+  { value: "status",    label: "Status" },
 ];
 
-const subjectNames = (coursePaper) => (coursePaper.subjects || []).map((s) => s.subject?.fullName).filter(Boolean);
+const shortLabel = (entity) => (entity ? entity.shortName || entity.fullName : "");
+const subjectNames = (coursePaper) => (coursePaper.subjects || []).map((s) => shortLabel(s.subject)).filter(Boolean);
+const examTypeNames = (coursePaper) => (coursePaper.examTypes || []).map((e) => shortLabel(e.examType)).filter(Boolean);
+const subjectFullNames = (coursePaper) => (coursePaper.subjects || []).map((s) => s.subject?.fullName).filter(Boolean);
+const examTypeFullNames = (coursePaper) => (coursePaper.examTypes || []).map((e) => e.examType?.fullName).filter(Boolean);
+
+// The list page's Full Name/Short Name columns are composites, not the raw
+// CoursePaper fields — e.g. "MBBS 1st Year Paper-I" / "M-Y1-P-I".
+const composedFullName = (cp) =>
+  [cp.program?.shortName, cp.degreeLevel?.fullName, cp.fullName].filter(Boolean).join(" ");
+const composedShortName = (cp) =>
+  [cp.program?.code, cp.degreeLevel?.shortName, cp.shortName].filter(Boolean).join("-");
+
+const formatDateTime = (val) => (val ? dayjs(val).format("DD MMM YYYY, hh:mm A") : "—");
+const userLabel = (user) => (user ? user.username || user.email : "—");
 
 const getFieldValue = (item, key) => {
-  if (key === "status")      return item.isActive ? "Active" : "Inactive";
-  if (key === "program")     return item.program?.fullName ?? "";
-  if (key === "degreeLevel") return item.degreeLevel?.fullName ?? "";
-  if (key === "session")     return item.session?.name ?? "";
+  if (key === "status")    return item.isActive ? "Active" : "Inactive";
+  if (key === "fullName")  return composedFullName(item);
+  if (key === "shortName") return composedShortName(item);
   return item[key] ?? "";
 };
 
@@ -52,8 +63,8 @@ export default function CoursePapersList() {
   const [coursePapers, setCoursePapers] = useState([]);
   const [programs, setPrograms] = useState([]);
   const [degreeLevels, setDegreeLevels] = useState([]);
-  const [sessions, setSessions] = useState([]);
   const [subjects, setSubjects] = useState([]);
+  const [examTypes, setExamTypes] = useState([]);
   const [institutes, setInstitutes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -64,9 +75,11 @@ export default function CoursePapersList() {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
+  const [viewRecord, setViewRecord] = useState(null);
   const [form] = Form.useForm();
   const selectedProgramId = Form.useWatch("programId", form);
   const selectedSubjectIds = Form.useWatch("subjectIds", form) || [];
+  const selectedExamTypeIds = Form.useWatch("examTypeIds", form) || [];
 
   useEffect(() => {
     (async () => {
@@ -99,15 +112,6 @@ export default function CoursePapersList() {
         }
       }
 
-      if (can("session.read-all")) {
-        try {
-          const { data } = await getSessions();
-          setSessions(data);
-        } catch {
-          // Non-fatal: the session dropdown just stays empty.
-        }
-      }
-
       if (can("subject.read-all")) {
         try {
           const { data } = await getSubjects();
@@ -117,12 +121,21 @@ export default function CoursePapersList() {
         }
       }
 
+      if (can("exam-type.read-all")) {
+        try {
+          const { data } = await getExamTypes();
+          setExamTypes(data);
+        } catch {
+          // Non-fatal: the exam types dropdown just stays empty.
+        }
+      }
+
       if (can("institute.read-all")) {
         try {
           const { data } = await getInstitutes();
           setInstitutes(data);
         } catch {
-          // Non-fatal: subject filtering just falls back to an exact institute match.
+          // Non-fatal: both the institute dropdown and subject-filtering just fall back to empty/exact match.
         }
       }
     })();
@@ -181,8 +194,8 @@ export default function CoursePapersList() {
       shortName:     record.shortName,
       programId:     record.programId,
       degreeLevelId: record.degreeLevelId,
-      sessionId:     record.sessionId,
       subjectIds:    (record.subjects || []).map((s) => s.subjectId),
+      examTypeIds:   (record.examTypes || []).map((e) => e.examTypeId),
     });
     setModalOpen(true);
   };
@@ -211,12 +224,12 @@ export default function CoursePapersList() {
       filtered,
       [
         { label: "S.No.",       accessor: (_, i) => i + 1 },
-        { label: "Full Name",   accessor: (r) => r.fullName },
-        { label: "Short Name",  accessor: (r) => r.shortName || "" },
-        { label: "Program",     accessor: (r) => r.program?.fullName || "" },
-        { label: "DegreeLevel", accessor: (r) => r.degreeLevel?.fullName || "" },
-        { label: "Session",     accessor: (r) => r.session?.name || "" },
+        { label: "Full Name",   accessor: (r) => composedFullName(r) },
+        { label: "Short Name",  accessor: (r) => composedShortName(r) },
+        { label: "Program",     accessor: (r) => shortLabel(r.program) },
+        { label: "DegreeLevel", accessor: (r) => shortLabel(r.degreeLevel) },
         { label: "Subjects",    accessor: (r) => subjectNames(r).join(", ") },
+        { label: "Exam Types",  accessor: (r) => examTypeNames(r).join(", ") },
         { label: "Status",      accessor: (r) => (r.isActive ? "Active" : "Inactive") },
       ],
       "course-papers"
@@ -234,34 +247,14 @@ export default function CoursePapersList() {
     },
     {
       title: "Full Name",
-      dataIndex: "fullName",
-      sorter: (a, b) => a.fullName.localeCompare(b.fullName),
+      render: (_, r) => composedFullName(r) || "—",
+      sorter: (a, b) => composedFullName(a).localeCompare(composedFullName(b)),
     },
     {
       title: "Short Name",
-      dataIndex: "shortName",
-      width: 130,
-      render: (val) => val || "—",
-    },
-    {
-      title: "Program",
       width: 150,
-      render: (_, r) => r.program?.fullName ?? "—",
-      sorter: (a, b) => (a.program?.fullName ?? "").localeCompare(b.program?.fullName ?? ""),
-    },
-    {
-      title: "Degree Level",
-      width: 150,
-      render: (_, r) => r.degreeLevel?.fullName ?? "—",
-    },
-    {
-      title: "Session",
-      width: 120,
-      render: (_, r) => r.session?.name ?? "—",
-    },
-    {
-      title: "Subjects",
-      render: (_, r) => subjectNames(r).join(", ") || "—",
+      render: (_, r) => composedShortName(r) || "—",
+      sorter: (a, b) => composedShortName(a).localeCompare(composedShortName(b)),
     },
     {
       title: "Status",
@@ -285,10 +278,13 @@ export default function CoursePapersList() {
     },
     {
       title: "Actions",
-      width: 90,
+      width: 100,
       align: "center",
       render: (_, record) => (
         <Space>
+          <Tooltip title="View Details">
+            <Button size="small" icon={<EyeOutlined />} onClick={() => setViewRecord(record)} />
+          </Tooltip>
           {can("course-paper.update") && (
             <Tooltip title="Edit">
               <Button size="small" icon={<EditOutlined />} onClick={() => openEditModal(record)} />
@@ -300,16 +296,16 @@ export default function CoursePapersList() {
   ];
 
   const programOptions = useMemo(
-    () => programs.filter((p) => p.isActive).map((p) => ({ value: p.id, label: p.fullName })),
+    () => programs.filter((p) => p.isActive).map((p) => ({ value: p.id, label: shortLabel(p) })),
     [programs]
   );
   const degreeLevelOptions = useMemo(
     () => degreeLevels.filter((d) => d.isActive).map((d) => ({ value: d.id, label: d.fullName })),
     [degreeLevels]
   );
-  const sessionOptions = useMemo(
-    () => sessions.filter((s) => s.isActive).map((s) => ({ value: s.id, label: s.name })),
-    [sessions]
+  const examTypeOptions = useMemo(
+    () => examTypes.filter((e) => e.isActive).map((e) => ({ value: e.id, label: e.fullName })),
+    [examTypes]
   );
 
   const selectedProgramInstituteId = useMemo(
@@ -425,7 +421,7 @@ export default function CoursePapersList() {
         confirmLoading={modalLoading}
         destroyOnClose
         centered
-        width={560}
+        width={640}
       >
         <Form
           form={form}
@@ -434,70 +430,65 @@ export default function CoursePapersList() {
           requiredMark={false}
           style={{ marginTop: 16 }}
         >
-          <Form.Item
-            name="fullName"
-            label="Full Name"
-            rules={[
-              { required: true, message: "Please enter the course/paper's full name." },
-              { max: 200, message: "Maximum 200 characters." },
-            ]}
-          >
-            <Input placeholder="e.g. Paper-I" />
-          </Form.Item>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="fullName"
+                label="Full Name"
+                rules={[
+                  { required: true, message: "Please enter the course/paper's full name." },
+                  { max: 200, message: "Maximum 200 characters." },
+                ]}
+              >
+                <Input placeholder="e.g. Paper-I" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="shortName"
+                label="Short Name"
+                rules={[{ max: 50, message: "Maximum 50 characters." }]}
+              >
+                <Input placeholder="e.g. P-I" />
+              </Form.Item>
+            </Col>
+          </Row>
 
-          <Form.Item
-            name="shortName"
-            label="Short Name"
-            rules={[{ max: 50, message: "Maximum 50 characters." }]}
-          >
-            <Input placeholder="e.g. P-I" />
-          </Form.Item>
-
-          <Form.Item
-            name="programId"
-            label="Program"
-            rules={[{ required: true, message: "Please select a program." }]}
-          >
-            <Select
-              placeholder="Select program"
-              options={programOptions}
-              showSearch
-              filterOption={(input, option) =>
-                option.label.toLowerCase().includes(input.toLowerCase())
-              }
-              onChange={() => form.setFieldValue("subjectIds", undefined)}
-            />
-          </Form.Item>
-
-          <Form.Item
-            name="degreeLevelId"
-            label="Degree Level"
-            rules={[{ required: true, message: "Please select a degree level." }]}
-          >
-            <Select
-              placeholder="Select degree level"
-              options={degreeLevelOptions}
-              showSearch
-              filterOption={(input, option) =>
-                option.label.toLowerCase().includes(input.toLowerCase())
-              }
-            />
-          </Form.Item>
-
-          <Form.Item
-            name="sessionId"
-            label="Session"
-            rules={[{ required: true, message: "Please select a session." }]}
-          >
-            <Select
-              placeholder="Select session"
-              options={sessionOptions}
-              showSearch
-              filterOption={(input, option) =>
-                option.label.toLowerCase().includes(input.toLowerCase())
-              }
-            />
-          </Form.Item>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="programId"
+                label="Program"
+                rules={[{ required: true, message: "Please select a program." }]}
+              >
+                <Select
+                  placeholder="Select program"
+                  options={programOptions}
+                  showSearch
+                  filterOption={(input, option) =>
+                    option.label.toLowerCase().includes(input.toLowerCase())
+                  }
+                  onChange={() => form.setFieldValue("subjectIds", undefined)}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="degreeLevelId"
+                label="Degree Level"
+                rules={[{ required: true, message: "Please select a degree level." }]}
+              >
+                <Select
+                  placeholder="Select degree level"
+                  options={degreeLevelOptions}
+                  showSearch
+                  filterOption={(input, option) =>
+                    option.label.toLowerCase().includes(input.toLowerCase())
+                  }
+                />
+              </Form.Item>
+            </Col>
+          </Row>
 
           <Form.Item
             name="subjectIds"
@@ -523,7 +514,87 @@ export default function CoursePapersList() {
               )}
             />
           </Form.Item>
+
+          <Form.Item
+            name="examTypeIds"
+            label="Exam Types"
+            rules={[{ required: true, type: "array", min: 1, message: "Please select at least one exam type." }]}
+            extra="Which exam types this course/paper can actually be examined under."
+          >
+            <Select
+              mode="multiple"
+              placeholder="Select exam types"
+              options={examTypeOptions}
+              showSearch
+              filterOption={(input, option) =>
+                option.label.toLowerCase().includes(input.toLowerCase())
+              }
+              menuItemSelectedIcon={null}
+              optionRender={(option) => (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span>{option.label}</span>
+                  <Checkbox checked={selectedExamTypeIds.includes(option.value)} />
+                </div>
+              )}
+            />
+          </Form.Item>
         </Form>
+      </Modal>
+
+      {/* View Details Modal */}
+      <Modal
+        title="Course/Paper Details"
+        open={!!viewRecord}
+        onCancel={() => setViewRecord(null)}
+        footer={null}
+        centered
+        width={600}
+      >
+        {viewRecord && (
+          <Descriptions
+            bordered
+            column={1}
+            size="small"
+            style={{ marginTop: 16 }}
+            labelStyle={{ fontWeight: 600, width: 160 }}
+          >
+            <Descriptions.Item label="Full Name">{composedFullName(viewRecord)}</Descriptions.Item>
+            <Descriptions.Item label="Short Name">{composedShortName(viewRecord) || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Program">{shortLabel(viewRecord.program) || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Degree Level">{shortLabel(viewRecord.degreeLevel) || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Subjects">
+              {subjectFullNames(viewRecord).length === 0 ? (
+                "—"
+              ) : (
+                <Space size={[4, 4]} wrap>
+                  {subjectFullNames(viewRecord).map((name) => (
+                    <Tag key={name}>{name}</Tag>
+                  ))}
+                </Space>
+              )}
+            </Descriptions.Item>
+            <Descriptions.Item label="Exam Types">
+              {examTypeFullNames(viewRecord).length === 0 ? (
+                "—"
+              ) : (
+                <Space size={[4, 4]} wrap>
+                  {examTypeFullNames(viewRecord).map((name) => (
+                    <Tag key={name}>{name}</Tag>
+                  ))}
+                </Space>
+              )}
+            </Descriptions.Item>
+            <Descriptions.Item label="Status">
+              <Tag color={viewRecord.isActive ? "success" : "default"}>
+                {viewRecord.isActive ? "Active" : "Inactive"}
+              </Tag>
+            </Descriptions.Item>
+            <Descriptions.Item label="Created At">{formatDateTime(viewRecord.createdAt)}</Descriptions.Item>
+            <Descriptions.Item label="Created By">{userLabel(viewRecord.creator)}</Descriptions.Item>
+            <Descriptions.Item label="Updated At">{formatDateTime(viewRecord.updatedAt)}</Descriptions.Item>
+            <Descriptions.Item label="Updated By">{userLabel(viewRecord.updater)}</Descriptions.Item>
+          </Descriptions>
+        )}
       </Modal>
     </DashboardLayout>
   );

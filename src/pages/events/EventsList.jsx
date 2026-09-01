@@ -36,13 +36,10 @@ const STATUS_COLORS = {
   cancelled:   "error",
 };
 
-const ALL_CATEGORIES = "__all__";
-
 const searchableColumns = [
   { value: "fullName",      label: "Full Name" },
   { value: "shortName",     label: "Short Name" },
   { value: "examType",      label: "Exam Type" },
-  { value: "eventCategory", label: "Event Category" },
   { value: "program",       label: "Program" },
   { value: "degreeLevel",   label: "Degree Level" },
   { value: "session",       label: "Session" },
@@ -53,7 +50,6 @@ const examTypeLabel = (examType) => examType?.fullName ?? "";
 
 const getFieldValue = (item, key) => {
   if (key === "examType")      return examTypeLabel(item.examType);
-  if (key === "eventCategory") return item.eventCategory?.name ?? "";
   if (key === "program")       return item.program?.fullName ?? "";
   if (key === "degreeLevel")   return item.degreeLevel?.fullName ?? "";
   if (key === "session")       return item.session?.name ?? "";
@@ -78,7 +74,6 @@ export default function EventsList() {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [selectedCategoryId, setSelectedCategoryId] = useState(ALL_CATEGORIES);
   const [searchBy, setSearchBy] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -111,34 +106,19 @@ export default function EventsList() {
     })();
   }, []);
 
-  // Every distinct Event Category currently appearing in the loaded events —
-  // no separate fetch/permission needed, since each event already carries it.
-  const categoryOptions = useMemo(() => {
-    const map = new Map();
-    events.forEach((e) => {
-      if (e.eventCategory && !map.has(e.eventCategory.id)) map.set(e.eventCategory.id, e.eventCategory.name);
-    });
-    return Array.from(map, ([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
-  }, [events]);
-
-  const categoryFiltered = useMemo(() => {
-    if (selectedCategoryId === ALL_CATEGORIES) return events;
-    return events.filter((e) => e.eventCategory?.id === selectedCategoryId);
-  }, [events, selectedCategoryId]);
-
   const filtered = useMemo(() => {
-    if (!searchTerm.trim()) return categoryFiltered;
+    if (!searchTerm.trim()) return events;
     const term = searchTerm.toLowerCase();
-    return categoryFiltered.filter((item) => {
+    return events.filter((item) => {
       if (!searchBy)
         return searchableColumns.some((col) =>
           String(getFieldValue(item, col.value)).toLowerCase().includes(term)
         );
       return String(getFieldValue(item, searchBy)).toLowerCase().includes(term);
     });
-  }, [categoryFiltered, searchBy, searchTerm]);
+  }, [events, searchBy, searchTerm]);
 
-  useEffect(() => { setCurrentPage(1); }, [searchTerm, searchBy, selectedCategoryId, pageSize]);
+  useEffect(() => { setCurrentPage(1); }, [searchTerm, searchBy, pageSize]);
 
   const openAddModal = () => {
     setEditingRecord(null);
@@ -189,7 +169,6 @@ export default function EventsList() {
         { label: "Full Name",  accessor: (r) => r.fullName },
         { label: "Short Name", accessor: (r) => r.shortName },
         { label: "Exam Type",      accessor: (r) => examTypeLabel(r.examType) },
-        { label: "Event Category", accessor: (r) => r.eventCategory?.name || "" },
         { label: "Program",     accessor: (r) => r.program?.fullName || "" },
         { label: "Degree Level", accessor: (r) => r.degreeLevel?.fullName || "" },
         { label: "Session",     accessor: (r) => r.session?.name || "" },
@@ -220,12 +199,6 @@ export default function EventsList() {
       title: "Short Name",
       dataIndex: "shortName",
       width: 160,
-    },
-    {
-      title: "Category",
-      width: 150,
-      render: (_, r) => r.eventCategory?.name ?? "—",
-      sorter: (a, b) => (a.eventCategory?.name ?? "").localeCompare(b.eventCategory?.name ?? ""),
     },
     {
       title: "Date",
@@ -274,7 +247,7 @@ export default function EventsList() {
   ];
 
   return (
-    <DashboardLayout onAdd={can("event.create") ? openAddModal : undefined}>
+    <DashboardLayout onAdd={(can("event.create") || can("event.create-departmental")) ? openAddModal : undefined}>
       {error && (
         <Alert
           message={error}
@@ -288,14 +261,6 @@ export default function EventsList() {
 
       <PageCard>
         <div className="list-toolbar">
-          <Select
-            className="event-category-filter"
-            placeholder="Event Category"
-            options={[{ value: ALL_CATEGORIES, label: "All Categories" }, ...categoryOptions]}
-            value={selectedCategoryId}
-            onChange={setSelectedCategoryId}
-            style={{ width: "auto" }}
-          />
           <Select
             placeholder="Search by"
             allowClear
@@ -380,7 +345,6 @@ export default function EventsList() {
               <Descriptions.Item label="Full Name" span={2}>{viewRecord.fullName}</Descriptions.Item>
               <Descriptions.Item label="Short Name" span={2}>{viewRecord.shortName}</Descriptions.Item>
               <Descriptions.Item label="Exam Type">{viewRecord.examType?.fullName ?? "—"}</Descriptions.Item>
-              <Descriptions.Item label="Event Category">{viewRecord.eventCategory?.name ?? "—"}</Descriptions.Item>
               <Descriptions.Item label="Program">{viewRecord.program?.fullName ?? "—"}</Descriptions.Item>
               <Descriptions.Item label="Degree Level">{viewRecord.degreeLevel?.fullName ?? "—"}</Descriptions.Item>
               <Descriptions.Item label="Session">{viewRecord.session?.name ?? "—"}</Descriptions.Item>

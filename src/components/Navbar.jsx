@@ -9,6 +9,7 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import NotificationBell from './NotificationBell';
 
 const { Header } = Layout;
 
@@ -88,7 +89,9 @@ export default function Navbar({ collapsed, onToggle }) {
         {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
       </button>
 
-      {/* Right: user dropdown */}
+      {/* Right: notifications + user dropdown */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <NotificationBell />
       <Dropdown menu={{ items: userMenuItems }} placement="bottomRight" trigger={['click']}>
         <div style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
           <Avatar
@@ -104,6 +107,7 @@ export default function Navbar({ collapsed, onToggle }) {
           )}
         </div>
       </Dropdown>
+      </div>
     </Header>
   );
 }

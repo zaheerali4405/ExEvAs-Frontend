@@ -1,7 +1,9 @@
 import { useState, useEffect, useMemo } from "react";
 import { Modal, Form, Select, DatePicker, TimePicker, Row, Col } from "antd";
 import dayjs from "dayjs";
-import { createEvent, updateEvent, updateEventTime, updateEventStatus } from "../../api/eventsApi";
+import {
+  createModerationMeeting, updateModerationMeeting, updateModerationMeetingTime, updateModerationMeetingStatus,
+} from "../../api/moderationMeetingsApi";
 import { getCoursePapers } from "../../api/coursePapersApi";
 import { getClasses } from "../../api/classesApi";
 import { useAuth } from "../../context/AuthContext";
@@ -14,26 +16,21 @@ const STATUS_OPTIONS = [
   { value: "cancelled",   label: "Cancelled" },
 ];
 
-// Shared Add/Edit Event form, used by both the Events list page and the
-// Datesheet calendar's "+" quick-add affordance (with the date pre-filled
-// there). Event is Exam-only — Moderation Meeting was split into its own
-// table/form (see [[project_moderation_meeting_split]] memory), so there's
-// no event category concept here anymore.
+// Class → Course/Paper → Subject → Exam Type is a 4-step cascade (one more
+// than Event's, since a Moderation Meeting is against a single subject of a
+// course/paper, not the whole paper — a paper with 3 subjects can have 3
+// meetings). Subject options come from the selected Course/Paper's own
+// linked subjects (CoursePaperSubject); the value stored on the form is the
+// CoursePaperSubject row's own id, not the bare Subject id — the same
+// subject can be linked to different papers, so the pairing matters.
 //
-// Class → Course/Paper → Exam Type is a 3-step cascade. Class is the single
-// entry point for Program + Degree Level + Session — those three are never
-// picked separately, they're read off the selected Class. Course/Paper
-// options are then narrowed by the Class's program/degreeLevel, and Exam
-// Type options are narrowed to only that paper's own assigned exam types
-// (CoursePaperExamType — a paper is only examinable under exam types
-// explicitly assigned to it, not any globally-defined one).
+// moderation-meeting.update, .update-time, and .update-status are
+// separately permission-gated, same split as Event.
 //
-// event.update, event.update-time, and event.update-status are all
-// separately permission-gated (the SRDD's Scheduler(dates)/Scheduler(time)
-// role split, plus status). Each section of the form only renders if the
-// user holds the matching permission — an editor with only one of the three
-// gets a form containing just that section.
-export default function EventFormModal({ open, editingRecord, initialDate, onCancel, onSuccess, onError }) {
+// No Venue field — every meeting uses whichever Venue is categorized
+// "moderation" (there is only ever meant to be one), auto-assigned
+// server-side (ModerationMeetingsService.resolveVenueId), not user-selectable.
+export default function ModerationMeetingFormModal({ open, editingRecord, initialDate, onCancel, onSuccess, onError }) {
   const { can } = useAuth();
   const [coursePapers, setCoursePapers] = useState([]);
   const [classes, setClasses] = useState([]);
@@ -43,11 +40,9 @@ export default function EventFormModal({ open, editingRecord, initialDate, onCan
   const selectedClassId = Form.useWatch("classId", form);
   const selectedCoursePaperId = Form.useWatch("coursePaperId", form);
 
-  const canEditTime = can("event.update-time");
-  const canEditMain = can("event.update");
-  const canEditStatus = !!editingRecord && can("event.update-status");
-  // Main fields (Class→Date) always show when adding; when editing, only
-  // if the user holds event.update.
+  const canEditTime = can("moderation-meeting.update-time");
+  const canEditMain = can("moderation-meeting.update");
+  const canEditStatus = !!editingRecord && can("moderation-meeting.update-status");
   const showMainFields = !editingRecord || canEditMain;
 
   useEffect(() => {
@@ -70,8 +65,7 @@ export default function EventFormModal({ open, editingRecord, initialDate, onCan
         }
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, can]);
 
   const activeCoursePapers = useMemo(() => coursePapers.filter((c) => c.isActive), [coursePapers]);
   const activeClasses = useMemo(() => classes.filter((c) => c.isActive), [classes]);
@@ -83,7 +77,7 @@ export default function EventFormModal({ open, editingRecord, initialDate, onCan
   useEffect(() => {
     if (!open) return;
     if (editingRecord) {
-      // The event only stores programId/degreeLevelId/sessionId directly —
+      // The meeting only stores programId/degreeLevelId/sessionId directly —
       // back into whichever Class matches that exact triple.
       const matchingClass = classes.find(
         (c) =>
@@ -93,7 +87,8 @@ export default function EventFormModal({ open, editingRecord, initialDate, onCan
       );
       form.setFieldsValue({
         classId: matchingClass?.id,
-        coursePaperId: editingRecord.coursePaperId,
+        coursePaperId: editingRecord.coursePaperSubject?.coursePaperId,
+        coursePaperSubjectId: editingRecord.coursePaperSubjectId,
         examTypeId: editingRecord.examTypeId,
         eventDate: editingRecord.eventDate ? dayjs(editingRecord.eventDate) : null,
         startTime: editingRecord.startTime ? dayjs(editingRecord.startTime, "HH:mm") : null,
@@ -102,9 +97,7 @@ export default function EventFormModal({ open, editingRecord, initialDate, onCan
       });
     } else {
       form.resetFields();
-      form.setFieldsValue({
-        eventDate: initialDate || undefined,
-      });
+      form.setFieldsValue({ eventDate: initialDate || undefined });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editingRecord, initialDate, classes, form]);
@@ -131,6 +124,13 @@ export default function EventFormModal({ open, editingRecord, initialDate, onCan
     [activeCoursePapers, selectedCoursePaperId]
   );
 
+  const subjectOptions = useMemo(() => {
+    if (!selectedCoursePaper) return [];
+    return (selectedCoursePaper.subjects || [])
+      .filter((link) => link.subject)
+      .map((link) => ({ value: link.id, label: link.subject.fullName }));
+  }, [selectedCoursePaper]);
+
   const examTypeOptions = useMemo(() => {
     if (!selectedCoursePaper) return [];
     return (selectedCoursePaper.examTypes || [])
@@ -148,28 +148,28 @@ export default function EventFormModal({ open, editingRecord, initialDate, onCan
     try {
       let data;
       const payload = {
-        coursePaperId: values.coursePaperId,
+        coursePaperSubjectId: values.coursePaperSubjectId,
         examTypeId: values.examTypeId,
         sessionId: selectedClass.sessionId,
       };
       if (editingRecord) {
         if (canEditMain) {
-          ({ data } = await updateEvent(editingRecord.id, {
+          ({ data } = await updateModerationMeeting(editingRecord.id, {
             ...payload,
             eventDate: values.eventDate ? values.eventDate.format("YYYY-MM-DD") : undefined,
           }));
         }
         if (canEditTime) {
-          ({ data } = await updateEventTime(editingRecord.id, {
+          ({ data } = await updateModerationMeetingTime(editingRecord.id, {
             startTime: values.startTime ? values.startTime.format("HH:mm") : undefined,
             endTime: values.endTime ? values.endTime.format("HH:mm") : undefined,
           }));
         }
         if (canEditStatus) {
-          ({ data } = await updateEventStatus(editingRecord.id, values.status));
+          ({ data } = await updateModerationMeetingStatus(editingRecord.id, values.status));
         }
       } else {
-        ({ data } = await createEvent({
+        ({ data } = await createModerationMeeting({
           ...payload,
           eventDate: values.eventDate ? values.eventDate.format("YYYY-MM-DD") : undefined,
           startTime: canEditTime && values.startTime ? values.startTime.format("HH:mm") : undefined,
@@ -178,13 +178,13 @@ export default function EventFormModal({ open, editingRecord, initialDate, onCan
       }
       onSuccess(data, !!editingRecord);
     } catch (err) {
-      onError?.(err.response?.data?.message || `Could not ${editingRecord ? "update" : "create"} event.`);
+      onError?.(err.response?.data?.message || `Could not ${editingRecord ? "update" : "create"} moderation meeting.`);
     } finally {
       setModalLoading(false);
     }
   };
 
-  const title = editingRecord ? "Edit Event" : "Add Event";
+  const title = editingRecord ? "Edit Moderation Meeting" : "Add Moderation Meeting";
 
   return (
     <Modal
@@ -220,7 +220,7 @@ export default function EventFormModal({ open, editingRecord, initialDate, onCan
                     options={classOptions}
                     showSearch
                     filterOption={(input, option) => option.label.toLowerCase().includes(input.toLowerCase())}
-                    onChange={() => form.setFieldsValue({ coursePaperId: undefined, examTypeId: undefined })}
+                    onChange={() => form.setFieldsValue({ coursePaperId: undefined, coursePaperSubjectId: undefined, examTypeId: undefined })}
                   />
                 </Form.Item>
               </Col>
@@ -241,11 +241,31 @@ export default function EventFormModal({ open, editingRecord, initialDate, onCan
                     disabled={!selectedClass}
                     showSearch
                     filterOption={(input, option) => option.label.toLowerCase().includes(input.toLowerCase())}
-                    onChange={() => form.setFieldValue("examTypeId", undefined)}
+                    onChange={() => form.setFieldsValue({ coursePaperSubjectId: undefined, examTypeId: undefined })}
                   />
                 </Form.Item>
               </Col>
               <Col span={12}>
+                <Form.Item
+                  name="coursePaperSubjectId"
+                  label="Subject"
+                  rules={[{ required: true, message: "Please select a subject." }]}
+                  extra={!selectedCoursePaperId ? "Select a course/paper first." : undefined}
+                >
+                  <Select
+                    className="assignment-select"
+                    placeholder="Select subject"
+                    options={subjectOptions}
+                    disabled={!selectedCoursePaperId}
+                    showSearch
+                    filterOption={(input, option) => option.label.toLowerCase().includes(input.toLowerCase())}
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
+
+            <Row gutter={24}>
+              <Col span={24}>
                 <Form.Item
                   name="examTypeId"
                   label="Exam Type"

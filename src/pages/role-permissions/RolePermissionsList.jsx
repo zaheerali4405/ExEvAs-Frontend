@@ -16,21 +16,29 @@ const { Text } = Typography;
 
 // Human-readable labels
 const ACTION_LABELS = {
-  "read-all":    "Read All",
-  "read":        "Read",
-  "create":      "Create",
-  "update":      "Update",
-  "activate":    "Activate",
-  "lock":        "Lock",
-  "toggle-2fa":  "Toggle 2FA",
-  "assign":      "Assign",
-  "unassign":    "Unassign",
-  "set-main":    "Set Main",
+  "read-all":            "Read All",
+  "read":                "Read",
+  "create":              "Create",
+  "update":              "Update",
+  "activate":            "Activate",
+  "lock":                "Lock",
+  "toggle-2fa":          "Toggle 2FA",
+  "assign":              "Assign",
+  "unassign":            "Unassign",
+  "set-main":            "Set Main",
+  "read-departmental":   "Read Departmental",
+  "create-departmental": "Create Departmental",
+  "update-time":         "Update Time",
+  "update-status":       "Update Status",
+  "schedule-weekend":    "Schedule Weekend",
+  "send":                "Send",
 };
 
 const ACTION_ORDER = [
   "read-all", "read", "create", "update", "activate",
   "lock", "toggle-2fa", "assign", "unassign", "set-main",
+  "read-departmental", "create-departmental",
+  "update-time", "update-status", "schedule-weekend", "send",
 ];
 
 const RESOURCE_LABELS = {
@@ -42,14 +50,64 @@ const RESOURCE_LABELS = {
   "designation-role":   "Designation Role",
   "role-permission":    "Role Permission",
   "user-role":          "User Role",
+  "institute":          "Institute",
+  "program":            "Program",
+  "session":            "Session",
+  "degree-level":       "Degree Level",
+  "class":              "Class",
+  "course-paper":       "Course/Paper",
+  "subject":            "Subject",
+  "department":         "Department",
+  "exam-type":          "Exam Type",
+  "employee":           "Employee",
+  "student":            "Student",
   "venue":              "Venue",
   "equipment":          "Equipment",
-  "event-category":     "Event Category",
+  "moderation-meeting": "Moderation Meeting",
   "event":              "Event",
+  "event-venue":        "Event Venue",
+  "event-equipment":    "Event Equipment",
+  "event-department":   "Event Department",
+  "event-staff":        "Event Staff",
+  "system-settings":    "System Settings",
+  "notification":       "Notification",
+  "notification-template": "Notification Template",
 };
 
 // Preserve seed order for resources
 const RESOURCE_ORDER = Object.keys(RESOURCE_LABELS);
+
+// Resources collapsed under a single expandable group row
+const RESOURCE_GROUPS = [
+  {
+    key: "group:user-rbac",
+    label: "User and RBAC",
+    resources: [
+      "user", "designation", "role", "permission",
+      "user-designation", "designation-role", "role-permission", "user-role",
+    ],
+  },
+  {
+    key: "group:academic-structure",
+    label: "Academic Structure",
+    resources: [
+      "institute", "program", "session", "degree-level", "class", "exam-type", 
+      "course-paper", "subject", "department", "employee", "student"
+    ],
+  },
+    {
+    key: "group:setup",
+    label: "Setup",
+    resources: [
+      "venue", "equipment", "event-venue", "event-equipment", "event-department", "event-staff"
+    ],
+  },
+  {
+    key: "group:notifications",
+    label: "Notifications",
+    resources: ["notification", "notification-template"],
+  },
+];
 
 export default function RolePermissionsList() {
   const [searchParams] = useSearchParams();
@@ -169,7 +227,29 @@ export default function RolePermissionsList() {
     return [...known, ...unknown];
   }, [permissionMap]);
 
-  const dataSource = resources.map((res) => ({ key: res, resource: res }));
+  const dataSource = useMemo(() => {
+    const grouped = new Set(RESOURCE_GROUPS.flatMap((g) => g.resources));
+    const rows = [];
+    resources.forEach((res) => {
+      if (grouped.has(res)) return; // placed inside its group below, in resource order
+      rows.push({ key: res, resource: res });
+    });
+
+    RESOURCE_GROUPS.forEach((group) => {
+      const children = group.resources
+        .filter((res) => permissionMap[res])
+        .map((res) => ({ key: res, resource: res }));
+      if (children.length === 0) return;
+      // insert the group row at the position of its first member, to preserve overall ordering
+      const firstIdx = resources.findIndex((r) => group.resources.includes(r));
+      const insertAt = rows.findIndex((r) => resources.indexOf(r.resource) > firstIdx);
+      const groupRow = { key: group.key, isGroup: true, label: group.label, children };
+      if (insertAt === -1) rows.push(groupRow);
+      else rows.splice(insertAt, 0, groupRow);
+    });
+
+    return rows;
+  }, [resources, permissionMap]);
 
   const columns = useMemo(() => {
     const resourceCol = {
@@ -177,9 +257,12 @@ export default function RolePermissionsList() {
       dataIndex: "resource",
       width: 180,
       fixed: "left",
-      render: (val) => (
-        <Text strong>{RESOURCE_LABELS[val] ?? val}</Text>
-      ),
+      render: (val, record) =>
+        record.isGroup ? (
+          <Text strong>{record.label}</Text>
+        ) : (
+          <Text strong>{RESOURCE_LABELS[val] ?? val}</Text>
+        ),
     };
 
     const actionCols = actions.map((action) => ({
@@ -262,6 +345,7 @@ export default function RolePermissionsList() {
               pagination={false}
               scroll={{ x: "max-content", y: "100%" }}
               locale={{ emptyText: "No permissions found." }}
+              expandable={{ childrenColumnName: "children" }}
             />
           </div>
         </PageCard>

@@ -22,10 +22,12 @@ const searchableColumns = [
   { value: "status",     label: "Status" },
 ];
 
+const instituteLabel = (institute) => (institute ? institute.shortName || institute.fullName : "");
+
 const getFieldValue = (item, key) => {
   if (key === "status")     return item.isActive ? "Active" : "Inactive";
   if (key === "department") return item.department?.name ?? "";
-  if (key === "institute")  return item.institute?.fullName ?? "";
+  if (key === "institute")  return instituteLabel(item.institute);
   return item[key] ?? "";
 };
 
@@ -47,6 +49,7 @@ export default function SubjectsList() {
   const [institutes, setInstitutes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [filterInstituteId, setFilterInstituteId] = useState(null);
   const [searchBy, setSearchBy] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -92,18 +95,21 @@ export default function SubjectsList() {
   }, []);
 
   const filtered = useMemo(() => {
-    if (!searchTerm.trim()) return subjects;
+    const scoped = filterInstituteId
+      ? subjects.filter((item) => item.instituteId === filterInstituteId)
+      : subjects;
+    if (!searchTerm.trim()) return scoped;
     const term = searchTerm.toLowerCase();
-    return subjects.filter((item) => {
+    return scoped.filter((item) => {
       if (!searchBy)
         return searchableColumns.some((col) =>
           String(getFieldValue(item, col.value)).toLowerCase().includes(term)
         );
       return String(getFieldValue(item, searchBy)).toLowerCase().includes(term);
     });
-  }, [subjects, searchBy, searchTerm]);
+  }, [subjects, filterInstituteId, searchBy, searchTerm]);
 
-  useEffect(() => { setCurrentPage(1); }, [searchTerm, searchBy, pageSize]);
+  useEffect(() => { setCurrentPage(1); }, [filterInstituteId, searchTerm, searchBy, pageSize]);
 
   const handleToggle = (record) => {
     const activate = !record.isActive;
@@ -174,7 +180,7 @@ export default function SubjectsList() {
         { label: "Full Name",  accessor: (r) => r.fullName },
         { label: "Short Name", accessor: (r) => r.shortName || "" },
         { label: "Department", accessor: (r) => r.department?.name || "" },
-        { label: "Institute",  accessor: (r) => r.institute?.fullName || "" },
+        { label: "Institute",  accessor: (r) => instituteLabel(r.institute) },
         { label: "Status",     accessor: (r) => (r.isActive ? "Active" : "Inactive") },
       ],
       "subjects"
@@ -210,8 +216,8 @@ export default function SubjectsList() {
     {
       title: "Institute",
       width: 200,
-      render: (_, r) => r.institute?.fullName ?? "—",
-      sorter: (a, b) => (a.institute?.fullName ?? "").localeCompare(b.institute?.fullName ?? ""),
+      render: (_, r) => instituteLabel(r.institute) || "—",
+      sorter: (a, b) => instituteLabel(a.institute).localeCompare(instituteLabel(b.institute)),
     },
     {
       title: "Status",
@@ -254,6 +260,11 @@ export default function SubjectsList() {
     [institutes]
   );
 
+  const instituteFilterOptions = useMemo(
+    () => institutes.filter((i) => i.isActive).map((i) => ({ value: i.id, label: instituteLabel(i) })),
+    [institutes]
+  );
+
   // Departments belonging to the currently selected institute — either a
   // top-level department (operates college-wide, no sub-department split)
   // or a sub-department specialized for this institute.
@@ -280,6 +291,16 @@ export default function SubjectsList() {
 
       <PageCard>
         <div className="list-toolbar">
+          <Select
+            placeholder="Filter by institute"
+            allowClear
+            options={instituteFilterOptions}
+            value={filterInstituteId}
+            onChange={(val) => setFilterInstituteId(val ?? null)}
+            showSearch
+            filterOption={(input, option) => option.label.toLowerCase().includes(input.toLowerCase())}
+            style={{ width: "100%" }}
+          />
           <Select
             placeholder="Search by"
             allowClear

@@ -15,11 +15,13 @@ import { useAuth } from "../../context/AuthContext";
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
 const USER_TYPE_OPTIONS = [
+  { value: "admin",    label: "Admin" },
   { value: "employee", label: "Employee" },
   { value: "student",  label: "Student" },
 ];
 
 const USER_TYPE_LABELS = {
+  admin:    "Admin",
   employee: "Employee",
   student:  "Student",
 };
@@ -133,9 +135,11 @@ export default function UsersList() {
   const openEditModal = (record) => {
     setEditingRecord(record);
     form.setFieldsValue({
-      email:    record.email,
-      username: record.username,
-      userType: record.userType,
+      email:         record.email,
+      username:      record.username,
+      recoveryEmail: record.recoveryEmail,
+      recoveryPhone: record.recoveryPhone,
+      userType:      record.userType,
     });
     setModalOpen(true);
   };
@@ -166,9 +170,11 @@ export default function UsersList() {
       filtered,
       [
         { label: "S.No.",     accessor: (_, i) => i + 1 },
-        { label: "Username",  accessor: (r) => r.username || "" },
-        { label: "Email",     accessor: (r) => r.email },
-        { label: "User Type", accessor: (r) => USER_TYPE_LABELS[r.userType] ?? "" },
+        { label: "Username",       accessor: (r) => r.username || "" },
+        { label: "Email",          accessor: (r) => r.email },
+        { label: "Recovery Email", accessor: (r) => r.recoveryEmail || "" },
+        { label: "Recovery Phone", accessor: (r) => r.recoveryPhone || "" },
+        { label: "User Type",      accessor: (r) => USER_TYPE_LABELS[r.userType] ?? "" },
         { label: "Status",    accessor: (r) => (r.isActive ? "Active" : "Inactive") },
         { label: "Locked",    accessor: (r) => (r.isLocked ? "Yes" : "No") },
       ],
@@ -375,6 +381,19 @@ export default function UsersList() {
             </Col>
           </Row>
 
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="recoveryEmail" label="Recovery Email" rules={[{ type: "email", message: "Invalid email." }]}>
+                <Input placeholder="Recovery email (optional)" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="recoveryPhone" label="Recovery Phone">
+                <Input placeholder="Recovery phone (optional)" />
+              </Form.Item>
+            </Col>
+          </Row>
+
           {!editingRecord && (
             <Form.Item name="password" label="Password" rules={[{ required: true, message: "Required." }, { min: 8, message: "Min 8 characters." }]}>
               <Input.Password placeholder="Password" />
@@ -406,6 +425,8 @@ export default function UsersList() {
           >
             <Descriptions.Item label="Username">{viewRecord.username || "—"}</Descriptions.Item>
             <Descriptions.Item label="Email">{viewRecord.email}</Descriptions.Item>
+            <Descriptions.Item label="Recovery Email">{viewRecord.recoveryEmail || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Recovery Phone">{viewRecord.recoveryPhone || "—"}</Descriptions.Item>
             <Descriptions.Item label="User Type">{USER_TYPE_LABELS[viewRecord.userType] ?? viewRecord.userType}</Descriptions.Item>
             <Descriptions.Item label="Status">
               <Tag color={viewRecord.isActive ? "success" : "default"}>

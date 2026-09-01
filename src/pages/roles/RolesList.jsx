@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import {
   Table, Input, Select, Button, Tag, Alert, Space, Tooltip,
-  Pagination, Modal, Form,
+  Pagination, Modal, Form, Checkbox,
 } from "antd";
 import { EditOutlined, DownloadOutlined, KeyOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
@@ -113,7 +113,11 @@ export default function RolesList() {
 
   const openEditModal = (record) => {
     setEditingRecord(record);
-    form.setFieldsValue({ name: record.name, description: record.description });
+    form.setFieldsValue({
+      name: record.name,
+      description: record.description,
+      isSuperAdmin: record.isSuperAdmin,
+    });
     setModalOpen(true);
   };
 
@@ -143,6 +147,7 @@ export default function RolesList() {
         { label: "S.No.",       accessor: (_, i) => i + 1 },
         { label: "Name",        accessor: (r) => r.name },
         { label: "Description", accessor: (r) => r.description || "" },
+        { label: "Super Admin", accessor: (r) => (r.isSuperAdmin ? "Yes" : "No") },
         { label: "Status",      accessor: (r) => (r.isActive ? "Active" : "Inactive") },
       ],
       "roles"
@@ -168,6 +173,14 @@ export default function RolesList() {
       dataIndex: "description",
       sorter: (a, b) => (a.description ?? "").localeCompare(b.description ?? ""),
       render: (val) => val || "—",
+    },
+    {
+      title: "Super Admin",
+      dataIndex: "isSuperAdmin",
+      width: 120,
+      sorter: (a, b) => Number(b.isSuperAdmin) - Number(a.isSuperAdmin),
+      render: (isSuperAdmin) =>
+        isSuperAdmin ? <Tag color="gold">Super Admin</Tag> : "—",
     },
     {
       title: "Status",
@@ -322,6 +335,9 @@ export default function RolesList() {
           </Form.Item>
           <Form.Item name="description" label="Description">
             <Input placeholder="Brief description (optional)" />
+          </Form.Item>
+          <Form.Item name="isSuperAdmin" valuePropName="checked">
+            <Checkbox>Super Admin (bypasses all permission checks)</Checkbox>
           </Form.Item>
         </Form>
       </Modal>

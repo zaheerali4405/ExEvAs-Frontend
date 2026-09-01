@@ -12,9 +12,11 @@ import {
   getEventEquipment, assignEventEquipment, updateEventEquipment, unassignEventEquipment,
 } from "../../api/eventEquipmentApi";
 import { getEventDepartments, assignEventDepartment, unassignEventDepartment } from "../../api/eventDepartmentsApi";
+import { getEventStaff, assignEventStaff, updateEventStaff, unassignEventStaff } from "../../api/eventStaffApi";
 import { getVenues } from "../../api/venuesApi";
 import { getEquipment } from "../../api/equipmentApi";
 import { getDepartments } from "../../api/departmentsApi";
+import { getEmployees } from "../../api/employeesApi";
 import { useAuth } from "../../context/AuthContext";
 
 const { Title, Text } = Typography;
@@ -22,6 +24,12 @@ const { Title, Text } = Typography;
 // Only this exam type (Prof Exam) allows multiple venues per event — matches
 // the backend rule in EventVenuesService.
 const MULTI_VENUE_CATEGORY_ID = 1;
+
+const VENUE_CATEGORY_LABELS = {
+  static: "Static",
+  mobile: "Mobile",
+  moderation: "Moderation",
+};
 
 const STATUS_LABELS = {
   hold:        "Hold",
@@ -38,6 +46,20 @@ const STATUS_TAG_COLORS = {
   completed:   "success",
   cancelled:   "error",
 };
+
+const DUTY_TYPE_OPTIONS = [
+  { value: "superintendent",        label: "Superintendent" },
+  { value: "deputy_superintendent", label: "Deputy Superintendent" },
+  { value: "invigilator",           label: "Invigilator" },
+  { value: "nomes_admin",           label: "NOMES Admin" },
+  { value: "facilitator",           label: "Facilitator" },
+  { value: "water_man",             label: "Water Man" },
+  { value: "janitorial",            label: "Janitorial" },
+];
+const DUTY_TYPE_LABELS = Object.fromEntries(DUTY_TYPE_OPTIONS.map((o) => [o.value, o.label]));
+
+const employeeLabel = (e) =>
+  `${e.firstName}${e.lastName ? ` ${e.lastName}` : ""} (${e.department?.name ?? "—"})`;
 
 export default function EventResourcesPage() {
   const { eventId } = useParams();
@@ -84,6 +106,20 @@ export default function EventResourcesPage() {
   const canViewDepartments = can("event-department.read-all");
   const canAssignDepartments = can("event-department.assign");
   const canUnassignDepartments = can("event-department.unassign");
+
+  const [assignedStaff, setAssignedStaff] = useState([]);
+  const [allEmployees, setAllEmployees] = useState([]);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState(null);
+  const [selectedDutyType, setSelectedDutyType] = useState(null);
+  const [assigningStaff, setAssigningStaff] = useState(false);
+  const [removingStaffEmployeeId, setRemovingStaffEmployeeId] = useState(null);
+  const [editingStaffRow, setEditingStaffRow] = useState(null);
+  const [staffModalLoading, setStaffModalLoading] = useState(false);
+  const [staffForm] = Form.useForm();
+
+  const canViewStaff = can("event-staff.read-all");
+  const canAssignStaff = can("event-staff.assign");
+  const canUnassignStaff = can("event-staff.unassign");
 
   useEffect(() => {
     (async () => {
@@ -140,10 +176,27 @@ export default function EventResourcesPage() {
           // Non-fatal
         }
       }
-      if (canAssignDepartments) {
+      if (canAssignDepartments || canAssignStaff) {
         try {
           const { data } = await getDepartments();
           setAllDepartments(data);
+        } catch {
+          // Non-fatal
+        }
+      }
+
+      if (canViewStaff) {
+        try {
+          const { data } = await getEventStaff(eventId);
+          setAssignedStaff(data);
+        } catch {
+          // Non-fatal
+        }
+      }
+      if (canAssignStaff) {
+        try {
+          const { data } = await getEmployees();
+          setAllEmployees(data);
         } catch {
           // Non-fatal
         }
@@ -159,7 +212,7 @@ export default function EventResourcesPage() {
     const assignedIds = new Set(assignedVenues.map((v) => v.venueId));
     return allVenues
       .filter((v) => v.isActive && !assignedIds.has(v.id))
-      .map((v) => ({ value: v.id, label: `${v.name} (${v.category?.name ?? "—"}, capacity ${v.capacity})` }));
+      .map((v) => ({ value: v.id, label: `${v.name} (${VENUE_CATEGORY_LABELS[v.category] ?? "—"}, capacity ${v.capacity})` }));
   }, [allVenues, assignedVenues]);
 
   const selectedVenue = useMemo(
@@ -173,6 +226,52 @@ export default function EventResourcesPage() {
       .filter((e) => e.isActive && !assignedIds.has(e.id))
       .map((e) => ({ value: e.id, label: e.name }));
   }, [allEquipment, assignedEquipment]);
+
+  // Whole department hierarchy (top-level root + every descendant, across all
+  // institutes) of every department already linked to this event — an
+  // employee from any of these is ineligible for staff duty (conflict of
+  // interest), mirroring EventStaffService.assertEmployeeEligible.
+  const blockedDepartmentIds = useMemo(() => {
+    if (!allDepartments.length || !assignedDepartments.length) return new Set();
+    const byId = new Map(allDepartments.map((d) => [d.id, d]));
+    const childrenOf = new Map();
+    allDepartments.forEach((d) => {
+      if (d.parentId == null) return;
+      const siblings = childrenOf.get(d.parentId) || [];
+      siblings.push(d.id);
+      childrenOf.set(d.parentId, siblings);
+    });
+    const rootOf = (id) => {
+      let current = byId.get(id);
+      while (current?.parentId != null) current = byId.get(current.parentId);
+      return current?.id ?? id;
+    };
+    const blocked = new Set();
+    const collectSubtree = (id) => {
+      if (blocked.has(id)) return;
+      blocked.add(id);
+      (childrenOf.get(id) || []).forEach(collectSubtree);
+    };
+    assignedDepartments.forEach((ed) => collectSubtree(rootOf(ed.departmentId)));
+    return blocked;
+  }, [allDepartments, assignedDepartments]);
+
+  const availableEmployeeOptions = useMemo(() => {
+    const assignedIds = new Set(assignedStaff.map((s) => s.employeeId));
+    return allEmployees
+      .filter((e) => e.isActive && !assignedIds.has(e.id) && !blockedDepartmentIds.has(e.departmentId))
+      .map((e) => ({ value: e.id, label: employeeLabel(e) }));
+  }, [allEmployees, assignedStaff, blockedDepartmentIds]);
+
+  // Edit-staff modal offers currently-eligible/unassigned employees plus
+  // whichever employee the row being edited already has (so leaving it
+  // unchanged is always an option, even if their department is now blocked).
+  const editStaffOptions = useMemo(() => {
+    if (!editingStaffRow) return availableEmployeeOptions;
+    const current = allEmployees.find((e) => e.id === editingStaffRow.employeeId);
+    if (!current) return availableEmployeeOptions;
+    return [{ value: current.id, label: employeeLabel(current) }, ...availableEmployeeOptions];
+  }, [availableEmployeeOptions, allEmployees, editingStaffRow]);
 
   const availableDepartmentOptions = useMemo(() => {
     const assignedIds = new Set(assignedDepartments.map((d) => d.departmentId));
@@ -188,7 +287,7 @@ export default function EventResourcesPage() {
     const current = allVenues.find((v) => v.id === editingVenueRow.venueId);
     if (!current) return availableVenueOptions;
     return [
-      { value: current.id, label: `${current.name} (${current.category?.name ?? "—"}, capacity ${current.capacity})` },
+      { value: current.id, label: `${current.name} (${VENUE_CATEGORY_LABELS[current.category] ?? "—"}, capacity ${current.capacity})` },
       ...availableVenueOptions,
     ];
   }, [availableVenueOptions, allVenues, editingVenueRow]);
@@ -297,6 +396,55 @@ export default function EventResourcesPage() {
     }
   };
 
+  const handleAssignStaff = async () => {
+    if (!selectedEmployeeId || !selectedDutyType) return;
+    setAssigningStaff(true);
+    setError("");
+    try {
+      const { data } = await assignEventStaff(eventId, selectedEmployeeId, selectedDutyType);
+      setAssignedStaff((prev) => [...prev, data]);
+      setSelectedEmployeeId(null);
+      setSelectedDutyType(null);
+    } catch (err) {
+      setError(err.response?.data?.message || "Could not assign staff.");
+    } finally {
+      setAssigningStaff(false);
+    }
+  };
+
+  const handleUnassignStaff = async (employeeId) => {
+    setRemovingStaffEmployeeId(employeeId);
+    setError("");
+    try {
+      await unassignEventStaff(eventId, employeeId);
+      setAssignedStaff((prev) => prev.filter((s) => s.employeeId !== employeeId));
+    } catch (err) {
+      setError(err.response?.data?.message || "Could not remove staff.");
+    } finally {
+      setRemovingStaffEmployeeId(null);
+    }
+  };
+
+  const openEditStaffModal = (record) => {
+    setEditingStaffRow(record);
+    staffForm.setFieldsValue({ employeeId: record.employeeId, dutyType: record.dutyType });
+  };
+
+  const handleEditStaffFinish = async (values) => {
+    setStaffModalLoading(true);
+    setError("");
+    try {
+      const { data } = await updateEventStaff(eventId, editingStaffRow.employeeId, values.employeeId, values.dutyType);
+      setAssignedStaff((prev) => prev.map((s) => (s.id === editingStaffRow.id ? data : s)));
+      setEditingStaffRow(null);
+      staffForm.resetFields();
+    } catch (err) {
+      setError(err.response?.data?.message || "Could not update staff assignment.");
+    } finally {
+      setStaffModalLoading(false);
+    }
+  };
+
   const handleAssignDepartment = async () => {
     if (!selectedDepartmentId) return;
     setAssigningDepartment(true);
@@ -351,7 +499,7 @@ export default function EventResourcesPage() {
 
   const venueColumns = [
     { title: "Name", render: (_, r) => r.venue?.name ?? "—" },
-    { title: "Category", render: (_, r) => r.venue?.category?.name ?? "—" },
+    { title: "Category", render: (_, r) => VENUE_CATEGORY_LABELS[r.venue?.category] ?? "—" },
     { title: "Location", render: (_, r) => r.venue?.location ?? "—" },
     { title: "Seats Reserved", width: 130, render: (_, r) => r.seats ?? "—" },
     {
@@ -397,6 +545,37 @@ export default function EventResourcesPage() {
                 icon={<DeleteOutlined />}
                 loading={removingDepartmentId === r.departmentId}
                 onClick={() => handleUnassignDepartment(r.departmentId)}
+              />
+            </Tooltip>
+          )}
+        </Space>
+      ),
+    },
+  ];
+
+  const staffColumns = [
+    { title: "Name", render: (_, r) => `${r.employee?.firstName ?? ""} ${r.employee?.lastName ?? ""}`.trim() || "—" },
+    { title: "Department", render: (_, r) => r.employee?.department?.name ?? "—" },
+    { title: "Duty", width: 160, render: (_, r) => DUTY_TYPE_LABELS[r.dutyType] ?? r.dutyType },
+    {
+      title: "Actions",
+      width: 100,
+      align: "center",
+      render: (_, r) => (
+        <Space>
+          {canAssignStaff && (
+            <Tooltip title="Edit">
+              <Button size="small" icon={<EditOutlined />} onClick={() => openEditStaffModal(r)} />
+            </Tooltip>
+          )}
+          {canUnassignStaff && (
+            <Tooltip title="Remove">
+              <Button
+                size="small"
+                danger
+                icon={<DeleteOutlined />}
+                loading={removingStaffEmployeeId === r.employeeId}
+                onClick={() => handleUnassignStaff(r.employeeId)}
               />
             </Tooltip>
           )}
@@ -623,7 +802,58 @@ export default function EventResourcesPage() {
             </PageCard>
           ) : null}
 
-          {!canViewDepartments && !canViewVenues && !canViewEquipment && (
+          {canViewStaff ? (
+            <PageCard style={{ marginTop: 16, paddingTop: 12 }}>
+              <Title level={5} style={{ marginTop: 0 }}>Staff</Title>
+
+              {canAssignStaff && (
+                <Space style={{ marginBottom: 16 }} wrap>
+                  <Select
+                    className="assignment-select"
+                    placeholder="Select an employee to assign"
+                    options={availableEmployeeOptions}
+                    value={selectedEmployeeId}
+                    onChange={setSelectedEmployeeId}
+                    showSearch
+                    filterOption={(input, option) =>
+                      option.label.toLowerCase().includes(input.toLowerCase())
+                    }
+                    style={{ width: 300 }}
+                  />
+                  <Select
+                    className="assignment-select"
+                    placeholder="Select duty"
+                    options={DUTY_TYPE_OPTIONS}
+                    value={selectedDutyType}
+                    onChange={setSelectedDutyType}
+                    style={{ width: 200 }}
+                  />
+                  <Button
+                    type="primary"
+                    icon={<PlusOutlined />}
+                    disabled={!selectedEmployeeId || !selectedDutyType}
+                    loading={assigningStaff}
+                    onClick={handleAssignStaff}
+                  >
+                    Assign
+                  </Button>
+                </Space>
+              )}
+
+              <div style={{ overflowX: "auto" }}>
+                <Table
+                  rowKey="id"
+                  dataSource={assignedStaff}
+                  columns={staffColumns}
+                  size="small"
+                  pagination={false}
+                  locale={{ emptyText: <Empty description="No staff assigned." /> }}
+                />
+              </div>
+            </PageCard>
+          ) : null}
+
+          {!canViewDepartments && !canViewVenues && !canViewEquipment && !canViewStaff && (
             <PageCard>
               <Text type="secondary">You do not have permission to view resources for this event.</Text>
             </PageCard>
@@ -713,6 +943,48 @@ export default function EventResourcesPage() {
             rules={[{ required: true, message: "Please enter quantity." }]}
           >
             <InputNumber min={1} style={{ width: "100%" }} />
+          </Form.Item>
+        </Form>
+      </Modal>
+      {/* Edit Staff Assignment Modal */}
+      <Modal
+        title="Edit Staff Assignment"
+        open={!!editingStaffRow}
+        onCancel={() => { setEditingStaffRow(null); staffForm.resetFields(); }}
+        onOk={() => staffForm.submit()}
+        okText="Save"
+        confirmLoading={staffModalLoading}
+        destroyOnClose
+        centered
+      >
+        <Form
+          form={staffForm}
+          layout="vertical"
+          onFinish={handleEditStaffFinish}
+          requiredMark={false}
+          style={{ marginTop: 16 }}
+        >
+          <Form.Item
+            name="employeeId"
+            label="Employee"
+            rules={[{ required: true, message: "Please select an employee." }]}
+          >
+            <Select
+              className="assignment-select"
+              placeholder="Select employee"
+              options={editStaffOptions}
+              showSearch
+              filterOption={(input, option) =>
+                option.label.toLowerCase().includes(input.toLowerCase())
+              }
+            />
+          </Form.Item>
+          <Form.Item
+            name="dutyType"
+            label="Duty"
+            rules={[{ required: true, message: "Please select a duty." }]}
+          >
+            <Select className="assignment-select" placeholder="Select duty" options={DUTY_TYPE_OPTIONS} />
           </Form.Item>
         </Form>
       </Modal>

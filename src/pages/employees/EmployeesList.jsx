@@ -41,6 +41,11 @@ const GENDER_OPTIONS = [
   { value: "other", label: "Other" },
 ];
 
+const EMPLOYEE_CATEGORY_OPTIONS = [
+  { value: "faculty", label: "Faculty" },
+  { value: "administrative", label: "Administrative Staff" },
+];
+
 const searchableColumns = [
   { value: "firstName", label: "First Name" },
   { value: "lastName", label: "Last Name" },
@@ -169,6 +174,7 @@ export default function EmployeesList() {
       phoneNo: record.phoneNo,
       postalAddress: record.postalAddress,
       departmentId: record.departmentId,
+      employeeCategory: record.employeeCategory,
     });
     setModalOpen(true);
   };
@@ -215,6 +221,10 @@ export default function EmployeesList() {
         { label: "Phone", accessor: (r) => r.phoneNo },
         { label: "Department", accessor: (r) => r.department?.name || "" },
         {
+          label: "Category",
+          accessor: (r) => EMPLOYEE_CATEGORY_OPTIONS.find((o) => o.value === r.employeeCategory)?.label || "",
+        },
+        {
           label: "Status",
           accessor: (r) => (r.isActive ? "Active" : "Inactive"),
         },
@@ -256,6 +266,11 @@ export default function EmployeesList() {
       render: (_, r) => r.department?.name ?? "—",
       sorter: (a, b) =>
         (a.department?.name ?? "").localeCompare(b.department?.name ?? ""),
+    },
+    {
+      title: "Category",
+      width: 150,
+      render: (_, r) => EMPLOYEE_CATEGORY_OPTIONS.find((o) => o.value === r.employeeCategory)?.label ?? "—",
     },
     {
       title: "Status",
@@ -510,6 +525,19 @@ export default function EmployeesList() {
                     option.label.toLowerCase().includes(input.toLowerCase())
                   }
                 />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="employeeCategory"
+                label="Employee Category"
+                rules={[
+                  { required: true, message: "Please select an employee category." },
+                ]}
+              >
+                <Select placeholder="Select category" options={EMPLOYEE_CATEGORY_OPTIONS} />
               </Form.Item>
             </Col>
           </Row>
