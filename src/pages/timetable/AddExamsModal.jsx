@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { Modal, Select, DatePicker, Button, Tag, Typography, Alert, Empty } from "antd";
+import { Modal, Select, DatePicker, Button, Tag, Typography, Alert, Empty, Checkbox } from "antd";
 import { LeftOutlined, RightOutlined, CloseOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { getClasses } from "../../api/classesApi";
@@ -29,6 +29,7 @@ export default function AddExamsModal({ open, existingEvents = [], onCancel, onS
   const [classes, setClasses] = useState([]);
   const [coursePapers, setCoursePapers] = useState([]);
 
+  const [isRetakeMode, setIsRetakeMode] = useState(false);
   const [selectedClassId, setSelectedClassId] = useState(null);
   const [selectedExamTypeId, setSelectedExamTypeId] = useState(null);
   const [weekStart, setWeekStart] = useState(() => mondayOf(dayjs()));
@@ -54,12 +55,23 @@ export default function AddExamsModal({ open, existingEvents = [], onCancel, onS
   // Fresh state every time the modal is (re)opened.
   useEffect(() => {
     if (!open) return;
+    setIsRetakeMode(false);
     setSelectedClassId(null);
     setSelectedExamTypeId(null);
     setWeekStart(mondayOf(dayjs()));
     setAssignments([]);
     setResults(null);
   }, [open]);
+
+  // Retake mode flips what every dropdown/pool means (unscheduled vs.
+  // already-scheduled) — nothing picked under the old mode is valid under
+  // the new one.
+  const handleRetakeModeChange = (checked) => {
+    setIsRetakeMode(checked);
+    setSelectedClassId(null);
+    setSelectedExamTypeId(null);
+    setAssignments([]);
+  };
 
   // Course/Papers are tied to a specific Class's program+degreeLevel — a
   // class change invalidates any already-staged assignments, and possibly
@@ -79,10 +91,19 @@ export default function AddExamsModal({ open, existingEvents = [], onCancel, onS
   const classLabel = (c) =>
     `${c.program?.shortName || c.program?.fullName || ""} ${c.degreeLevel?.fullName || ""} ${c.session?.name || ""}`.replace(/\s+/g, " ").trim();
 
-  const classOptions = useMemo(
-    () => classes.filter((c) => c.isActive).map((c) => ({ value: c.id, label: classLabel(c) })),
-    [classes]
-  );
+  // Retake mode only offers classes that already have at least one original
+  // (non-retake) event — nothing to retake otherwise.
+  const classOptions = useMemo(() => {
+    const base = classes.filter((c) => c.isActive);
+    const filtered = isRetakeMode
+      ? base.filter((c) =>
+          existingEvents.some(
+            (e) => !e.isRetake && e.programId === c.programId && e.degreeLevelId === c.degreeLevelId && e.sessionId === c.sessionId
+          )
+        )
+      : base;
+    return filtered.map((c) => ({ value: c.id, label: classLabel(c) }));
+  }, [classes, existingEvents, isRetakeMode]);
 
   const assignedIds = useMemo(() => new Set(assignments.map((a) => a.coursePaperId)), [assignments]);
 
@@ -96,9 +117,22 @@ export default function AddExamsModal({ open, existingEvents = [], onCancel, onS
     );
   }, [coursePapers, selectedClass]);
 
+  // Exam types this class already has at least one original (non-retake)
+  // event for — the set retake mode narrows the Exam Type dropdown to.
+  const classOriginalExamTypeIds = useMemo(() => {
+    if (!selectedClass) return new Set();
+    const paperIds = new Set(classCoursePapers.map((cp) => cp.id));
+    return new Set(
+      existingEvents
+        .filter((e) => !e.isRetake && e.sessionId === selectedClass.sessionId && paperIds.has(e.coursePaperId))
+        .map((e) => e.examTypeId)
+    );
+  }, [existingEvents, selectedClass, classCoursePapers]);
+
   // Exam Type is scoped to the selected class — only exam types actually
   // assigned (via CoursePaperExamType) to one of this class's course/papers
-  // are offered, not every exam type in the system.
+  // are offered, not every exam type in the system. Retake mode narrows
+  // further to only exam types that already have an original event here.
   const examTypeOptions = useMemo(() => {
     const byId = new Map();
     classCoursePapers.forEach((cp) => {
@@ -108,26 +142,110 @@ export default function AddExamsModal({ open, existingEvents = [], onCancel, onS
       });
     });
     return Array.from(byId.values())
+      .filter((et) => !isRetakeMode || classOriginalExamTypeIds.has(et.id))
       .sort((a, b) => a.fullName.localeCompare(b.fullName))
       .map((et) => ({ value: et.id, label: et.fullName }));
-  }, [classCoursePapers]);
+  }, [classCoursePapers, isRetakeMode, classOriginalExamTypeIds]);
 
   const classExamTypeCoursePapers = useMemo(() => {
     if (!selectedExamTypeId) return [];
     return classCoursePapers.filter((c) => (c.examTypes || []).some((link) => link.examTypeId === selectedExamTypeId));
   }, [classCoursePapers, selectedExamTypeId]);
 
-  const pool = useMemo(
-    () => classExamTypeCoursePapers.filter((c) => !assignedIds.has(c.id)),
-    [classExamTypeCoursePapers, assignedIds]
+  // Course/papers that already have an original (non-retake) Event for this
+  // exact exam type AND session (an Event is unique per coursePaperId+
+  // examTypeId+sessionId+isRetake — the same paper's exam recurs every
+  // session, so a different session's already-scheduled exam must not block
+  // this one) — in normal mode these must never be offered to drag again
+  // (the backend would just reject the duplicate at save time); in retake
+  // mode this is exactly the set that's eligible to retake.
+  const alreadyScheduled = useMemo(() => {
+    if (!selectedExamTypeId || !selectedClass) return [];
+    return classExamTypeCoursePapers
+      .map((cp) => ({
+        coursePaper: cp,
+        event: existingEvents.find(
+          (e) => !e.isRetake && e.coursePaperId === cp.id && e.examTypeId === selectedExamTypeId && e.sessionId === selectedClass.sessionId
+        ),
+        retake: existingEvents.find(
+          (e) => e.isRetake && e.coursePaperId === cp.id && e.examTypeId === selectedExamTypeId && e.sessionId === selectedClass.sessionId
+        ),
+      }))
+      .filter((x) => !!x.event);
+  }, [classExamTypeCoursePapers, existingEvents, selectedExamTypeId, selectedClass]);
+
+  const alreadyScheduledIds = useMemo(
+    () => new Set(alreadyScheduled.map((x) => x.coursePaper.id)),
+    [alreadyScheduled]
   );
 
+  const allAlreadyScheduled = classExamTypeCoursePapers.length > 0 && alreadyScheduled.length === classExamTypeCoursePapers.length;
+
+  // Course/papers eligible for a retake — already have an original, don't
+  // already have a retake, and aren't already staged locally.
+  const retakeEligibleIds = useMemo(
+    () => new Set(alreadyScheduled.filter((x) => !x.retake).map((x) => x.coursePaper.id)),
+    [alreadyScheduled]
+  );
+
+  const originalDateByCoursePaperId = useMemo(() => {
+    const map = new Map();
+    alreadyScheduled.forEach((x) => { if (x.event?.eventDate) map.set(x.coursePaper.id, x.event.eventDate); });
+    return map;
+  }, [alreadyScheduled]);
+
+  const earliestScheduledDate = useMemo(() => {
+    const dates = alreadyScheduled.map((x) => x.event.eventDate).filter(Boolean).sort();
+    return dates.length ? dayjs(dates[0]) : null;
+  }, [alreadyScheduled]);
+
+  // Jump the week grid to wherever the class's already-scheduled (normal
+  // mode) or original (retake mode) exams for this exam type are, so the
+  // scheduler sees them immediately instead of whatever week happened to be
+  // showing before.
+  useEffect(() => {
+    if (earliestScheduledDate) setWeekStart(mondayOf(earliestScheduledDate));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedClassId, selectedExamTypeId]);
+
+  const pool = useMemo(() => {
+    if (isRetakeMode) {
+      return classExamTypeCoursePapers.filter((c) => !assignedIds.has(c.id) && retakeEligibleIds.has(c.id));
+    }
+    return classExamTypeCoursePapers.filter((c) => !assignedIds.has(c.id) && !alreadyScheduledIds.has(c.id));
+  }, [isRetakeMode, classExamTypeCoursePapers, assignedIds, alreadyScheduledIds, retakeEligibleIds]);
+
   const coursePaperById = (id) => coursePapers.find((c) => c.id === id);
+
+  // Same dash-joined format as the calendar's own Event.shortName (see
+  // buildEventNames in events.service.ts) — program short form, degree
+  // level, course/paper, exam type, session year — so a freshly-dropped
+  // course/paper reads identically to an already-scheduled exam.
+  const coursePaperShortLabel = (cp) => {
+    if (!cp) return "";
+    const program = cp.program?.code || cp.program?.shortName || cp.program?.fullName || "";
+    const degreeLevel = cp.degreeLevel?.shortName || cp.degreeLevel?.fullName || "";
+    const paper = cp.shortName || cp.fullName || "";
+    const examTypeLink = (cp.examTypes || []).find((l) => l.examTypeId === selectedExamTypeId);
+    const examType = examTypeLink?.examType?.shortName || examTypeLink?.examType?.fullName || "";
+    const session = selectedClass?.session?.profYear ?? selectedClass?.session?.name ?? "";
+    return [program, degreeLevel, paper, examType, session].filter(Boolean).join("-");
+  };
 
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => weekStart.add(i, "day")), [weekStart]);
 
   const isWeekend = (day) => day.day() === 0 || day.day() === 6;
   const canDropOnDay = (day) => !isWeekend(day) || canScheduleWeekend;
+
+  // A retake must land after its own original's date — each dragged
+  // course/paper can have a different original date, so this is checked
+  // per-item, not once for the whole modal.
+  const isValidRetakeDrop = (coursePaperId, day) => {
+    if (!isRetakeMode || coursePaperId == null) return true;
+    const originalDate = originalDateByCoursePaperId.get(coursePaperId);
+    if (!originalDate) return false;
+    return day.isAfter(dayjs(originalDate), "day");
+  };
 
   const onDragStartTag = (coursePaperId) => (e) => {
     e.dataTransfer.effectAllowed = "move";
@@ -135,7 +253,7 @@ export default function AddExamsModal({ open, existingEvents = [], onCancel, onS
   };
 
   const onDragOverDay = (day) => (e) => {
-    if (!canDropOnDay(day)) return;
+    if (!canDropOnDay(day) || !isValidRetakeDrop(draggedId, day)) return;
     e.preventDefault();
     setDragOverKey(day.format("YYYY-MM-DD"));
   };
@@ -148,6 +266,16 @@ export default function AddExamsModal({ open, existingEvents = [], onCancel, onS
     e.preventDefault();
     setDragOverKey(null);
     if (!canDropOnDay(day) || draggedId == null) return;
+    if (!isValidRetakeDrop(draggedId, day)) {
+      const originalDate = originalDateByCoursePaperId.get(draggedId);
+      onError?.(
+        originalDate
+          ? `A retake must be scheduled after the original event's date (${dayjs(originalDate).format("DD MMM YYYY")}).`
+          : "The original event has no date set yet — set one there before adding a retake."
+      );
+      setDraggedId(null);
+      return;
+    }
     setAssignments((prev) => [...prev, { coursePaperId: draggedId, date: day.format("YYYY-MM-DD") }]);
     setDraggedId(null);
   };
@@ -171,7 +299,12 @@ export default function AddExamsModal({ open, existingEvents = [], onCancel, onS
     return map;
   }, [existingEvents]);
 
-  const canSave = !!selectedClass && !!selectedExamTypeId && assignments.length > 0;
+  // Every course/paper that appeared in the pool must be placed on a day
+  // before saving is allowed — pool.length === 0 once they all are (it
+  // already excludes anything already-scheduled). Retake mode is selective —
+  // adding a retake for just one or two papers is fine, no all-or-nothing rule.
+  const canSave =
+    !!selectedClass && !!selectedExamTypeId && assignments.length > 0 && (isRetakeMode || pool.length === 0);
 
   const handleSave = async () => {
     if (!canSave) return;
@@ -188,6 +321,7 @@ export default function AddExamsModal({ open, existingEvents = [], onCancel, onS
           examTypeId: selectedExamTypeId,
           sessionId: selectedClass.sessionId,
           eventDate: a.date,
+          isRetake: isRetakeMode,
         });
         succeeded.push(a);
         createdEvents.push(data);
@@ -237,6 +371,10 @@ export default function AddExamsModal({ open, existingEvents = [], onCancel, onS
           />
         )}
 
+        <Checkbox checked={isRetakeMode} onChange={(e) => handleRetakeModeChange(e.target.checked)}>
+          Is this a retake?
+        </Checkbox>
+
         <div style={{ display: "flex", gap: 16 }}>
           <div style={{ flex: 1 }}>
             <Text strong style={{ display: "block", marginBottom: 4 }}>Class</Text>
@@ -264,7 +402,9 @@ export default function AddExamsModal({ open, existingEvents = [], onCancel, onS
             />
             {selectedClass && examTypeOptions.length === 0 && (
               <Text type="secondary" style={{ fontSize: 12 }}>
-                No exam types are assigned to this class's course/papers.
+                {isRetakeMode
+                  ? "None of this class's course/papers have an existing event to retake."
+                  : "No exam types are assigned to this class's course/papers."}
               </Text>
             )}
             {!selectedClass && (
@@ -273,10 +413,23 @@ export default function AddExamsModal({ open, existingEvents = [], onCancel, onS
           </div>
         </div>
 
-        {selectedClass && selectedExamTypeId && (
+        {!isRetakeMode && selectedClass && selectedExamTypeId && alreadyScheduled.length > 0 && (
+          <Text type="warning" style={{ display: "block", marginTop: 6, fontSize: 12 }}>
+            {allAlreadyScheduled
+              ? "Exams are already scheduled for the selected class and exam type."
+              : `${alreadyScheduled.length} of ${classExamTypeCoursePapers.length} course/paper(s) are already scheduled for the selected class and exam type.`}{" "}
+            You can change their dates by drag and drop on the calendar.
+          </Text>
+        )}
+
+        {/* Once every matching course/paper already has an exam scheduled,
+            there's nothing left to drag — skip the pool entirely per the
+            Alert above, and go straight to the week grid at its date. */}
+        {selectedClass && selectedExamTypeId && (isRetakeMode || !allAlreadyScheduled) && (
           <div>
             <Text strong style={{ display: "block", marginBottom: 8 }}>
-              Course/Papers <Text type="secondary" style={{ fontWeight: 400 }}>(drag onto a day below)</Text>
+              {isRetakeMode ? "Course/Papers eligible for retake" : "Course/Papers"}{" "}
+              <Text type="secondary" style={{ fontWeight: 400 }}>(drag onto a day below)</Text>
             </Text>
             {pool.length === 0 ? (
               <Text type="secondary" style={{ fontSize: 13 }}>
@@ -284,22 +437,31 @@ export default function AddExamsModal({ open, existingEvents = [], onCancel, onS
                   ? "No course/papers found for this class."
                   : classExamTypeCoursePapers.length === 0
                   ? "None of this class's course/papers are assigned this exam type."
+                  : isRetakeMode
+                  ? "All retake-eligible course/papers already have a retake, or have been placed on the week grid below."
                   : "All matching course/papers have been placed on the week grid."}
               </Text>
             ) : (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                {pool.map((c) => (
-                  <Tag
-                    key={c.id}
-                    draggable
-                    onDragStart={onDragStartTag(c.id)}
-                    style={{ cursor: "grab", padding: "4px 10px", fontSize: 13 }}
-                    color="blue"
-                  >
-                    {c.fullName}
-                  </Tag>
-                ))}
-              </div>
+              <>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {pool.map((c) => (
+                    <Tag
+                      key={c.id}
+                      draggable
+                      onDragStart={onDragStartTag(c.id)}
+                      style={{ cursor: "grab", padding: "4px 10px", fontSize: 13 }}
+                      color="blue"
+                    >
+                      {c.fullName}
+                    </Tag>
+                  ))}
+                </div>
+                {!isRetakeMode && (
+                  <Text type="warning" style={{ display: "block", marginTop: 6, fontSize: 12 }}>
+                    {pool.length} course/paper(s) still need to be scheduled below before you can save.
+                  </Text>
+                )}
+              </>
             )}
           </div>
         )}
@@ -407,7 +569,8 @@ export default function AddExamsModal({ open, existingEvents = [], onCancel, onS
                             onClose={() => removeAssignment(a.coursePaperId)}
                             style={{ fontSize: 10, margin: 0, whiteSpace: "normal" }}
                           >
-                            {cp?.shortName || cp?.fullName || `#${a.coursePaperId}`}
+                            {coursePaperShortLabel(cp) || `#${a.coursePaperId}`}
+                            {isRetakeMode ? "-RT" : ""}
                           </Tag>
                         );
                       })}

@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import dayjs from "dayjs";
 import {
   Table, Select, InputNumber, Button, Alert, Space, Tooltip, Typography, Spin, Empty, Modal, Form, Tag,
 } from "antd";
@@ -90,12 +91,20 @@ export default function EventResourcesPage() {
   const [equipmentModalLoading, setEquipmentModalLoading] = useState(false);
   const [equipmentForm] = Form.useForm();
 
+  const canEditPastEvents = can("event.update-past");
+  // A normal *.assign/*.unassign holder can only touch resources on today's
+  // or future-dated events — a past event's resources require
+  // event.update-past, same rule as editing the event's own details/time/
+  // status. An event with no date yet is never "past".
+  const isPastEvent = !!event?.eventDate && dayjs(event.eventDate).isBefore(dayjs().startOf("day"), "day");
+  const pastLocked = isPastEvent && !canEditPastEvents;
+
   const canViewVenues = can("event-venue.read-all");
-  const canAssignVenues = can("event-venue.assign");
-  const canUnassignVenues = can("event-venue.unassign");
+  const canAssignVenues = can("event-venue.assign") && !pastLocked;
+  const canUnassignVenues = can("event-venue.unassign") && !pastLocked;
   const canViewEquipment = can("event-equipment.read-all");
-  const canAssignEquipment = can("event-equipment.assign");
-  const canUnassignEquipment = can("event-equipment.unassign");
+  const canAssignEquipment = can("event-equipment.assign") && !pastLocked;
+  const canUnassignEquipment = can("event-equipment.unassign") && !pastLocked;
 
   const [assignedDepartments, setAssignedDepartments] = useState([]);
   const [allDepartments, setAllDepartments] = useState([]);
@@ -104,8 +113,8 @@ export default function EventResourcesPage() {
   const [removingDepartmentId, setRemovingDepartmentId] = useState(null);
 
   const canViewDepartments = can("event-department.read-all");
-  const canAssignDepartments = can("event-department.assign");
-  const canUnassignDepartments = can("event-department.unassign");
+  const canAssignDepartments = can("event-department.assign") && !pastLocked;
+  const canUnassignDepartments = can("event-department.unassign") && !pastLocked;
 
   const [assignedStaff, setAssignedStaff] = useState([]);
   const [allEmployees, setAllEmployees] = useState([]);
@@ -118,8 +127,8 @@ export default function EventResourcesPage() {
   const [staffForm] = Form.useForm();
 
   const canViewStaff = can("event-staff.read-all");
-  const canAssignStaff = can("event-staff.assign");
-  const canUnassignStaff = can("event-staff.unassign");
+  const canAssignStaff = can("event-staff.assign") && !pastLocked;
+  const canUnassignStaff = can("event-staff.unassign") && !pastLocked;
 
   useEffect(() => {
     (async () => {
@@ -655,6 +664,15 @@ export default function EventResourcesPage() {
               <Tag color={STATUS_TAG_COLORS[event.status]}>{STATUS_LABELS[event.status]}</Tag>
             </Space>
           </PageCard>
+
+          {pastLocked && (
+            <Alert
+              type="warning"
+              showIcon
+              message="This event's date has already passed — resources can no longer be changed without permission to edit past events."
+              style={{ marginBottom: 16 }}
+            />
+          )}
 
           {canViewDepartments ? (
             <PageCard style={{ marginBottom: 16, paddingTop: 12 }}>

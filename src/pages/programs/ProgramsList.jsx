@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import {
   Table, Input, Select, Button, Tag, Alert, Space, Tooltip,
-  Pagination, Modal, Form, Descriptions,
+  Pagination, Modal, Form, Descriptions, Switch,
 } from "antd";
 import { EditOutlined, DownloadOutlined, EyeOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
@@ -148,6 +148,7 @@ export default function ProgramsList() {
   const openAddModal = () => {
     setEditingRecord(null);
     form.resetFields();
+    form.setFieldsValue({ autoScheduleModerationMeetings: true });
     setModalOpen(true);
   };
 
@@ -162,6 +163,7 @@ export default function ProgramsList() {
       affiliatedWith: record.affiliatedWith,
       type:           record.type,
       notes:          record.notes,
+      autoScheduleModerationMeetings: record.autoScheduleModerationMeetings,
     });
     setModalOpen(true);
   };
@@ -197,6 +199,7 @@ export default function ProgramsList() {
         { label: "Term System",     accessor: (r) => TERM_SYSTEM_OPTIONS.find((t) => t.value === r.termSystem)?.label || r.termSystem },
         { label: "Affiliated With", accessor: (r) => r.affiliatedWith },
         { label: "Type",            accessor: (r) => PROGRAM_TYPE_LABELS[r.type] ?? r.type },
+        { label: "Auto-Schedule Moderation Meetings", accessor: (r) => (r.autoScheduleModerationMeetings ? "Yes" : "No") },
         { label: "Status",          accessor: (r) => (r.isActive ? "Active" : "Inactive") },
       ],
       "programs"
@@ -444,6 +447,14 @@ export default function ProgramsList() {
             <Select placeholder="Select program type" options={PROGRAM_TYPE_OPTIONS} />
           </Form.Item>
 
+          <Form.Item
+            name="autoScheduleModerationMeetings"
+            label="Auto-Schedule Moderation Meetings"
+            valuePropName="checked"
+          >
+            <Switch />
+          </Form.Item>
+
           <Form.Item name="notes" label="Notes">
             <Input.TextArea placeholder="Notes" autoSize={{ minRows: 2, maxRows: 6 }} />
           </Form.Item>
@@ -476,6 +487,11 @@ export default function ProgramsList() {
             </Descriptions.Item>
             <Descriptions.Item label="Affiliated With">{viewRecord.affiliatedWith}</Descriptions.Item>
             <Descriptions.Item label="Type">{PROGRAM_TYPE_LABELS[viewRecord.type] ?? viewRecord.type}</Descriptions.Item>
+            <Descriptions.Item label="Auto-Schedule Moderation Meetings">
+              <Tag color={viewRecord.autoScheduleModerationMeetings ? "success" : "default"}>
+                {viewRecord.autoScheduleModerationMeetings ? "Yes" : "No"}
+              </Tag>
+            </Descriptions.Item>
             <Descriptions.Item label="Notes">{viewRecord.notes || "—"}</Descriptions.Item>
             <Descriptions.Item label="Status">
               <Tag color={viewRecord.isActive ? "success" : "default"}>

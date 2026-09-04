@@ -25,6 +25,7 @@ import EventsList from './pages/events/EventsList';
 import EventResourcesPage from './pages/events/EventResourcesPage';
 import DatesheetPage from './pages/timetable/DatesheetPage';
 import ModerationMeetingsList from './pages/moderation-meetings/ModerationMeetingsList';
+import OspeOsceList from './pages/ospe-osce/OspeOsceList';
 import ModerationMeetingCalendarView from './pages/moderation-meetings/ModerationMeetingCalendarView';
 import SystemSettingsPage from './pages/system-settings/SystemSettingsPage';
 import InstitutesList from './pages/institutes/InstitutesList';
@@ -201,6 +202,14 @@ function App() {
             element={
               <ProtectedRoute permission={["moderation-meeting.read-all", "moderation-meeting.read-departmental"]}>
                 <ModerationMeetingCalendarView />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/ospe-osce"
+            element={
+              <ProtectedRoute permission={["ospe-osce.read-all", "ospe-osce.read-departmental"]}>
+                <OspeOsceList />
               </ProtectedRoute>
             }
           />

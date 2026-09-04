@@ -90,6 +90,13 @@ export default function EventsList() {
   const canViewVenues = can("event-venue.read-all");
   const canViewEquipment = can("event-equipment.read-all");
   const canViewDepartments = can("event-department.read-all");
+  const canEditPastEvents = can("event.update-past");
+
+  // A normal event.update/-time/-status holder can only edit today's or
+  // future-dated events — editing a past event requires event.update-past.
+  // An event with no date yet is never "past".
+  const isPastEvent = (record) =>
+    !!record.eventDate && dayjs(record.eventDate).isBefore(dayjs().startOf("day"), "day");
 
   useEffect(() => {
     (async () => {
@@ -227,11 +234,12 @@ export default function EventsList() {
               <Button size="small" icon={<EyeOutlined />} onClick={() => openViewModal(record)} />
             </Tooltip>
           )}
-          {(can("event.update") || can("event.update-time") || can("event.update-status")) && (
-            <Tooltip title="Edit">
-              <Button size="small" icon={<EditOutlined />} onClick={() => openEditModal(record)} />
-            </Tooltip>
-          )}
+          {(can("event.update") || can("event.update-time") || can("event.update-status")) &&
+            (!isPastEvent(record) || canEditPastEvents) && (
+              <Tooltip title="Edit">
+                <Button size="small" icon={<EditOutlined />} onClick={() => openEditModal(record)} />
+              </Tooltip>
+            )}
           {can("event.read") && (can("event-venue.read-all") || can("event-equipment.read-all")) && (
             <Tooltip title="Manage Resources">
               <Button
@@ -325,6 +333,7 @@ export default function EventsList() {
       <EventFormModal
         open={modalOpen}
         editingRecord={editingRecord}
+        existingEvents={events}
         onCancel={() => setModalOpen(false)}
         onSuccess={handleModalSuccess}
         onError={setError}

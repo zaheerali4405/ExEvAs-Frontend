@@ -13,8 +13,22 @@ import { useAuth } from "../../context/AuthContext";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
+const DEPARTMENT_CATEGORY_OPTIONS = [
+  { value: "academic",         label: "Academic" },
+  { value: "academic_support", label: "Academic Support" },
+  { value: "administration",   label: "Administration" },
+];
+const DEPARTMENT_CATEGORY_LABELS = Object.fromEntries(DEPARTMENT_CATEGORY_OPTIONS.map((o) => [o.value, o.label]));
+const DEPARTMENT_CATEGORY_COLORS = {
+  academic: "blue",
+  academic_support: "purple",
+  administration: "orange",
+};
+
 const searchableColumns = [
   { value: "name",      label: "Name" },
+  { value: "shortName", label: "Short Name" },
+  { value: "category",  label: "Category" },
   { value: "institute", label: "Institute" },
   { value: "parent",    label: "Parent" },
   { value: "status",    label: "Status" },
@@ -24,6 +38,7 @@ const instituteLabel = (institute) => (institute ? institute.shortName || instit
 
 const getFieldValue = (item, key) => {
   if (key === "status")    return item.isActive ? "Active" : "Inactive";
+  if (key === "category")  return DEPARTMENT_CATEGORY_LABELS[item.category] ?? "";
   if (key === "institute") return instituteLabel(item.institute);
   if (key === "parent")    return item.parent?.name ?? "";
   return item[key] ?? "";
@@ -133,6 +148,8 @@ export default function DepartmentsList() {
     setEditingRecord(record);
     form.setFieldsValue({
       name:        record.name,
+      shortName:   record.shortName,
+      category:    record.category,
       instituteId: record.instituteId,
       parentId:    record.parentId,
     });
@@ -163,11 +180,13 @@ export default function DepartmentsList() {
     exportToExcel(
       filtered,
       [
-        { label: "S.No.",     accessor: (_, i) => i + 1 },
-        { label: "Name",      accessor: (r) => r.name },
-        { label: "Institute", accessor: (r) => instituteLabel(r.institute) },
-        { label: "Parent",    accessor: (r) => r.parent?.name || "" },
-        { label: "Status",    accessor: (r) => (r.isActive ? "Active" : "Inactive") },
+        { label: "S.No.",      accessor: (_, i) => i + 1 },
+        { label: "Name",       accessor: (r) => r.name },
+        { label: "Short Name", accessor: (r) => r.shortName || "" },
+        { label: "Category",   accessor: (r) => DEPARTMENT_CATEGORY_LABELS[r.category] ?? "" },
+        { label: "Institute",  accessor: (r) => instituteLabel(r.institute) },
+        { label: "Parent",     accessor: (r) => r.parent?.name || "" },
+        { label: "Status",     accessor: (r) => (r.isActive ? "Active" : "Inactive") },
       ],
       "departments"
     );
@@ -186,6 +205,18 @@ export default function DepartmentsList() {
       title: "Name",
       dataIndex: "name",
       sorter: (a, b) => a.name.localeCompare(b.name),
+    },
+    {
+      title: "Short Name",
+      dataIndex: "shortName",
+      width: 130,
+      render: (val) => val || "—",
+    },
+    {
+      title: "Category",
+      width: 150,
+      render: (_, r) => <Tag color={DEPARTMENT_CATEGORY_COLORS[r.category]}>{DEPARTMENT_CATEGORY_LABELS[r.category] ?? r.category}</Tag>,
+      sorter: (a, b) => (DEPARTMENT_CATEGORY_LABELS[a.category] ?? "").localeCompare(DEPARTMENT_CATEGORY_LABELS[b.category] ?? ""),
     },
     {
       title: "Institute",
@@ -364,6 +395,22 @@ export default function DepartmentsList() {
             ]}
           >
             <Input placeholder="e.g. Anatomy" />
+          </Form.Item>
+
+          <Form.Item
+            name="shortName"
+            label="Short Name"
+            rules={[{ max: 50, message: "Maximum 50 characters." }]}
+          >
+            <Input placeholder="e.g. Anat" />
+          </Form.Item>
+
+          <Form.Item
+            name="category"
+            label="Category"
+            rules={[{ required: true, message: "Please select a category." }]}
+          >
+            <Select placeholder="Select category" options={DEPARTMENT_CATEGORY_OPTIONS} />
           </Form.Item>
 
           <Form.Item

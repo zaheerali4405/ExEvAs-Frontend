@@ -1,10 +1,30 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { Button, Alert, Typography, Spin, Empty, Modal, Descriptions, Tag, Segmented } from "antd";
-import { LeftOutlined, RightOutlined, PlusOutlined } from "@ant-design/icons";
+import {
+  Button, Alert, Typography, Spin, Empty, Modal, Tag, Segmented, Table, Space,
+  Select, InputNumber, Form, Tooltip, DatePicker, TimePicker,
+} from "antd";
+import {
+  LeftOutlined, RightOutlined, PlusOutlined, EditOutlined, DeleteOutlined, SaveOutlined, CloseOutlined,
+} from "@ant-design/icons";
 import dayjs from "dayjs";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import PageCard from "../../components/PageCard";
-import { getEvents, updateEvent } from "../../api/eventsApi";
+import { getEvents, getEvent, updateEvent, updateEventTime } from "../../api/eventsApi";
+import {
+  getEventVenues, assignEventVenue, updateEventVenue, unassignEventVenue, getEventVenueAvailability,
+} from "../../api/eventVenuesApi";
+import {
+  getEventEquipment, assignEventEquipment, updateEventEquipment, unassignEventEquipment, getEventEquipmentAvailability,
+} from "../../api/eventEquipmentApi";
+import {
+  getEventStaff, assignEventStaff, updateEventStaff, unassignEventStaff, getEventStaffDutyLimits,
+} from "../../api/eventStaffApi";
+import { getEventDepartments } from "../../api/eventDepartmentsApi";
+import { getOspeOsceExams } from "../../api/ospeOsceApi";
+import { getVenues } from "../../api/venuesApi";
+import { getEquipment } from "../../api/equipmentApi";
+import { getEmployees } from "../../api/employeesApi";
+import { getDepartments } from "../../api/departmentsApi";
 import { useAuth } from "../../context/AuthContext";
 import EventFormModal from "../events/EventFormModal";
 import AddExamsModal from "./AddExamsModal";
@@ -40,6 +60,37 @@ const STATUS_TAG_COLORS = {
   cancelled:   "error",
 };
 
+const DUTY_TYPE_OPTIONS = [
+  { value: "superintendent",        label: "Superintendent" },
+  { value: "deputy_superintendent", label: "Deputy Superintendent" },
+  { value: "invigilator",           label: "Invigilator" },
+  { value: "nomes_admin",           label: "NOMES Admin" },
+  { value: "facilitator",           label: "Facilitator" },
+  { value: "water_man",             label: "Water Man" },
+  { value: "janitorial",            label: "Janitorial" },
+];
+const DUTY_TYPE_LABELS = Object.fromEntries(DUTY_TYPE_OPTIONS.map((o) => [o.value, o.label]));
+
+const employeeLabel = (e) =>
+  `${e.firstName}${e.lastName ? ` ${e.lastName}` : ""} (${e.department?.name ?? "—"})`;
+
+// A normal event.update/-time/-status/event-*.assign/unassign holder can
+// only act on today's or future-dated events — a past event requires
+// event.update-past. An event with no date yet is never "past".
+const isPastEvent = (ev) => !!ev?.eventDate && dayjs(ev.eventDate).isBefore(dayjs().startOf("day"), "day");
+
+// Same as Event.fullName, but with the program abbreviated to its short
+// name — reads cleaner as a modal title than the fully spelled-out program
+// name.
+const detailsModalTitle = (ev) => {
+  if (!ev) return undefined;
+  const program = ev.program?.shortName || ev.program?.fullName || "";
+  const base = [program, ev.degreeLevel?.fullName, ev.coursePaper?.fullName, ev.examType?.fullName, ev.session?.name]
+    .filter(Boolean)
+    .join(" ");
+  return ev.isRetake ? `${base} RT` : base;
+};
+
 
 const DAY_ROW_HEIGHT = 56; // px per hour in Day/Week views
 
@@ -51,8 +102,53 @@ const WEEKDAY_FULL_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Frida
 const HALF_HOUR_HEIGHT = DAY_ROW_HEIGHT / 2;
 const HALF_HOURS = Array.from({ length: 48 }, (_, i) => i); // i*30 minutes
 
-// No per-exam coloring — every block uses the same neutral outlined style.
-const EXAM_BLOCK_STYLE = { background: "transparent", color: "#262626", border: "1px solid #d9d9d9" };
+// Falls back to the old neutral outlined style when an exam type has no
+// color configured (Exam Types page) — otherwise a light tint of the exam
+// type's own color, so each block reads at a glance without needing to open
+// it. Text always stays dark/neutral regardless of the color, for contrast.
+function hexToRgba(hex, alpha) {
+  const clean = hex.replace("#", "");
+  const r = parseInt(clean.slice(0, 2), 16);
+  const g = parseInt(clean.slice(2, 4), 16);
+  const b = parseInt(clean.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function examBlockStyle(ev) {
+  const color = ev?.examType?.color;
+  if (!color) return { background: "transparent", color: "#262626", border: "1px solid #d9d9d9" };
+  return { background: hexToRgba(color, 0.14), color: "#262626", border: `1px solid ${color}` };
+}
+
+// OSPE/OSCE blocks reuse the same exam-type color tint as Theory events (so
+// the same exam type reads consistently) but always get a dashed border —
+// the one visual cue that distinguishes "OSPE/OSCE, date-only" from a
+// regular timed/venued Theory exam block at a glance.
+function ospeOsceBlockStyle(record) {
+  const color = record?.examType?.color;
+  if (!color) return { background: "#f9f0ff", color: "#262626", border: "1px dashed #9254de" };
+  return { background: hexToRgba(color, 0.14), color: "#262626", border: `1px dashed ${color}` };
+}
+
+// Mirrors OspeOsceList.jsx's own papersLabel/classLabel/dateRangeLabel
+// helpers — kept as separate local copies since this file has its own
+// STATUS_LABELS/STATUS_TAG_COLORS already matching the same EventStatus enum.
+const ospeOscePapersLabel = (record) =>
+  (record.coursePapers || [])
+    .map((cp) => (cp.coursePaper?.shortName || cp.coursePaper?.fullName || `#${cp.coursePaperId}`) + (cp.isRetake ? " (RT)" : ""))
+    .join(", ");
+
+const ospeOsceClassLabel = (record) => {
+  const program = record.program?.shortName || record.program?.fullName || "";
+  return [program, record.degreeLevel?.fullName, record.session?.name].filter(Boolean).join(" ");
+};
+
+const ospeOsceDateRangeLabel = (record) => {
+  if (!record.startDate) return "Not set";
+  const start = dayjs(record.startDate).format("DD MMM YYYY");
+  const end = record.endDate ? dayjs(record.endDate).format("DD MMM YYYY") : null;
+  return end && end !== start ? `${start} – ${end}` : start;
+};
 
 function timeToMinutes(t) {
   const [h, m] = t.split(":").map(Number);
@@ -148,9 +244,30 @@ function buildMonthGrid(monthStart) {
 export default function EventCalendarView({ bulkAddEnabled = false }) {
   const { can } = useAuth();
   const canReschedule = can("event.update");
+  const canEditEventTime = can("event.update-time");
+  const canViewVenues = can("event-venue.read-all");
+  const canAssignVenues = can("event-venue.assign");
+  const canUnassignVenues = can("event-venue.unassign");
+  const canViewEquipment = can("event-equipment.read-all");
+  const canAssignEquipment = can("event-equipment.assign");
+  const canUnassignEquipment = can("event-equipment.unassign");
+  const canViewStaff = can("event-staff.read-all");
+  const canAssignStaff = can("event-staff.assign");
+  const canUnassignStaff = can("event-staff.unassign");
+  const canViewDepartments = can("event-department.read-all");
+  const canEditPastEvents = can("event.update-past");
+  const canViewOspeOsce = can("ospe-osce.read-all") || can("ospe-osce.read-departmental");
+  // Whether the viewer can act on any resource at all — decides whether the
+  // details modal shows the table+form assignment UI (useful for someone who
+  // manages resources) or a plain, friendly read-only summary (everyone
+  // else, e.g. Faculty just checking an upcoming exam in their department).
+  const canManageResources =
+    canAssignVenues || canUnassignVenues || canAssignEquipment || canUnassignEquipment || canAssignStaff || canUnassignStaff;
 
   const [viewMode, setViewMode] = useState("month");
   const [allEvents, setAllEvents] = useState([]);
+  const [allOspeOsce, setAllOspeOsce] = useState([]);
+  const [ospeOsceDetails, setOspeOsceDetails] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [currentMonth, setCurrentMonth] = useState(() => dayjs().startOf("month"));
@@ -160,7 +277,69 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
   const [draggedEventId, setDraggedEventId] = useState(null);
   const [dragOverDate, setDragOverDate] = useState(null);
   const [detailsEvent, setDetailsEvent] = useState(null);
+  const [detailsResources, setDetailsResources] = useState(null);
+  const [detailsLoading, setDetailsLoading] = useState(false);
   const [reschedulingId, setReschedulingId] = useState(null);
+
+  // Assignment option lists (venues/equipment/employees/departments to pick
+  // from) — fetched lazily once, on first Details-modal open, same as
+  // EventResourcesPage.jsx.
+  const [allVenues, setAllVenues] = useState([]);
+  const [allEquipment, setAllEquipment] = useState([]);
+  const [allEmployees, setAllEmployees] = useState([]);
+  const [allDepartments, setAllDepartments] = useState([]);
+  const [assignOptionsLoaded, setAssignOptionsLoaded] = useState(false);
+
+  // The Date/Time row — same single-row inline-edit pattern as Venue below.
+  // Date and Time are separately permission-gated (event.update vs
+  // event.update-time, the SRDD's Scheduler(dates)/Scheduler(time) split,
+  // same as EventFormModal.jsx) — whichever of the two the viewer lacks
+  // just stays read-only text inside the same editable row.
+  const [dateTimeEditing, setDateTimeEditing] = useState(false);
+  const [dateDraft, setDateDraft] = useState(null);
+  const [startTimeDraft, setStartTimeDraft] = useState(null);
+  const [endTimeDraft, setEndTimeDraft] = useState(null);
+  const [dateTimeSaving, setDateTimeSaving] = useState(false);
+
+  // Venue is a single inline-editable row (at most one per event in this
+  // modal — see MULTI_VENUE_CATEGORY_ID note on EventResourcesPage.jsx for
+  // the one exam category that technically allows more; only the first is
+  // surfaced here). venueEditing toggles the row between its read-only
+  // display and an editable one (Select + inputs); a brand-new, not-yet-
+  // assigned venue starts the row in edit mode automatically.
+  const [venueEditing, setVenueEditing] = useState(false);
+  const [venueDraftVenueId, setVenueDraftVenueId] = useState(null);
+  const [venueDraftSeats, setVenueDraftSeats] = useState(null);
+  const [venueAvailability, setVenueAvailability] = useState(null);
+  const [venueAvailabilityLoading, setVenueAvailabilityLoading] = useState(false);
+  const [venueSaving, setVenueSaving] = useState(false);
+  const [removingVenueId, setRemovingVenueId] = useState(null);
+
+  // Equipment supports any number of rows — equipmentEditingKey is either
+  // 'new' (an unsaved row being added), an existing EventEquipment id (that
+  // row being edited), or null (nothing being edited). Only one row is
+  // editable at a time.
+  const [equipmentEditingKey, setEquipmentEditingKey] = useState(null);
+  const [equipmentDraftEquipmentId, setEquipmentDraftEquipmentId] = useState(null);
+  const [equipmentDraftQuantity, setEquipmentDraftQuantity] = useState(null);
+  const [equipmentAvailabilityMap, setEquipmentAvailabilityMap] = useState({});
+  const [equipmentAvailabilityLoadingId, setEquipmentAvailabilityLoadingId] = useState(null);
+  const [equipmentSaving, setEquipmentSaving] = useState(false);
+  const [removingEquipmentId, setRemovingEquipmentId] = useState(null);
+
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState(null);
+  const [selectedDutyType, setSelectedDutyType] = useState(null);
+  // eslint-disable-next-line no-unused-vars -- kept for the commented-out staff assign form below
+  const [assigningStaff, setAssigningStaff] = useState(false);
+  // eslint-disable-next-line no-unused-vars -- kept for the commented-out staff table below
+  const [removingStaffEmployeeId, setRemovingStaffEmployeeId] = useState(null);
+  const [editingStaffRow, setEditingStaffRow] = useState(null);
+  const [staffModalLoading, setStaffModalLoading] = useState(false);
+  const [staffForm] = Form.useForm();
+  // Per-duty-type min/max (from the event's exam type's ExamTypeDutyRule
+  // rows) and how many are currently assigned — min is advisory only
+  // (shown here), max is what the backend actually blocks against.
+  const [dutyLimits, setDutyLimits] = useState(null);
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [addModalDate, setAddModalDate] = useState(null);
   const [bulkAddModalOpen, setBulkAddModalOpen] = useState(false);
@@ -172,14 +351,19 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
       setLoading(true);
       setError("");
       try {
-        const { data } = await getEvents();
-        setAllEvents(data);
+        const [{ data: eventsData }, ospeOsceData] = await Promise.all([
+          getEvents(),
+          canViewOspeOsce ? getOspeOsceExams().then((r) => r.data) : Promise.resolve([]),
+        ]);
+        setAllEvents(eventsData);
+        setAllOspeOsce(ospeOsceData);
       } catch (err) {
         setError(err.response?.data?.message || "Could not load events.");
       } finally {
         setLoading(false);
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const events = allEvents;
@@ -189,8 +373,15 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
   // Holding Area holds every event still in Hold status — a Hold event with a
   // full date/time also appears on the calendar below (faded, non-clickable)
   // simultaneously, until time + all three resource types get it to Scheduled.
+  // Events with no date yet always stay in the Holding Area — only a dated
+  // event that's already in the past drops off.
   const holdEvents = useMemo(
-    () => events.filter((e) => e.status === "hold").sort((a, b) => a.fullName.localeCompare(b.fullName)),
+    () => {
+      const today = dayjs().startOf("day");
+      return events
+        .filter((e) => e.status === "hold" && (!e.eventDate || !dayjs(e.eventDate).isBefore(today, "day")))
+        .sort((a, b) => a.fullName.localeCompare(b.fullName));
+    },
     [events]
   );
 
@@ -208,6 +399,32 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
     return map;
   }, [events]);
 
+  // OSPE/OSCE has no time slot — just a date range — so it's shown once per
+  // calendar day it spans, the same way an untimed Event shows in Month
+  // view's day box and Week/Day view's all-day strip below. Entries with no
+  // date yet (still Hold) don't appear here, same as a dateless Event.
+  const ospeOsceByDate = useMemo(() => {
+    const map = {};
+    allOspeOsce.forEach((o) => {
+      if (!o.startDate) return;
+      const start = dayjs(o.startDate).startOf("day");
+      const end = o.endDate ? dayjs(o.endDate).startOf("day") : start;
+      let cursor = start;
+      let days = 0;
+      // Guard against an absurdly wide range looping forever.
+      while (!cursor.isAfter(end) && days < 60) {
+        const key = cursor.format("YYYY-MM-DD");
+        if (!map[key]) map[key] = [];
+        map[key].push(o);
+        cursor = cursor.add(1, "day");
+        days += 1;
+      }
+    });
+    return map;
+  }, [allOspeOsce]);
+
+  const openOspeOsceDetails = (record) => setOspeOsceDetails(record);
+
   const weeks = useMemo(() => buildMonthGrid(currentMonth), [currentMonth]);
 
   // Year view: total events scheduled per month. Event is Exam-only now, so
@@ -221,6 +438,437 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
       return { monthIdx, monthDate, total };
     });
   }, [events, currentYear]);
+
+  // "Available" = total capacity/quantity minus what other events already
+  // hold at the same date/overlapping time — fetched per row so Available/
+  // Remaining columns populate even for a row that isn't being edited.
+  const fetchVenueAvailability = async (venueId, eventId) => {
+    if (!venueId || !eventId) return;
+    setVenueAvailabilityLoading(true);
+    try {
+      const { data } = await getEventVenueAvailability(venueId, eventId);
+      setVenueAvailability(data);
+    } catch {
+      setVenueAvailability(null);
+    } finally {
+      setVenueAvailabilityLoading(false);
+    }
+  };
+
+  const fetchEquipmentAvailability = async (equipmentId, eventId) => {
+    if (!equipmentId || !eventId) return;
+    setEquipmentAvailabilityLoadingId(equipmentId);
+    try {
+      const { data } = await getEventEquipmentAvailability(equipmentId, eventId);
+      setEquipmentAvailabilityMap((prev) => ({ ...prev, [equipmentId]: data }));
+    } catch {
+      // leave unset — the column just shows "—"
+    } finally {
+      setEquipmentAvailabilityLoadingId(null);
+    }
+  };
+
+  const openDetails = (ev) => {
+    setDetailsEvent(ev);
+    setDetailsResources(null);
+    setDetailsLoading(true);
+    setDateTimeEditing(false);
+    setDateDraft(null);
+    setStartTimeDraft(null);
+    setEndTimeDraft(null);
+    setVenueEditing(false);
+    setVenueDraftVenueId(null);
+    setVenueDraftSeats(null);
+    setVenueAvailability(null);
+    setEquipmentEditingKey(null);
+    setEquipmentDraftEquipmentId(null);
+    setEquipmentDraftQuantity(null);
+    setEquipmentAvailabilityMap({});
+    setSelectedEmployeeId(null);
+    setSelectedDutyType(null);
+    setDutyLimits(null);
+    if (canViewStaff) {
+      getEventStaffDutyLimits(ev.id).then(({ data }) => setDutyLimits(data)).catch(() => {});
+    }
+    Promise.all([
+      canViewVenues ? getEventVenues(ev.id) : Promise.resolve({ data: [] }),
+      canViewEquipment ? getEventEquipment(ev.id) : Promise.resolve({ data: [] }),
+      canViewStaff ? getEventStaff(ev.id) : Promise.resolve({ data: [] }),
+      canViewDepartments ? getEventDepartments(ev.id) : Promise.resolve({ data: [] }),
+    ])
+      .then(([venues, equipment, staff, departments]) => {
+        setDetailsResources({
+          venues: venues.data,
+          equipment: equipment.data,
+          staff: staff.data,
+          departments: departments.data,
+        });
+        // Nothing assigned yet — the row starts directly in edit mode, ready
+        // to pick, same for both — but only for someone who could actually
+        // save it; a view-only user just sees the empty state.
+        setVenueEditing(canAssignVenues && venues.data.length === 0);
+        if (canAssignVenues && venues.data[0]) fetchVenueAvailability(venues.data[0].venueId, ev.id);
+        if (canAssignEquipment) {
+          equipment.data.forEach((link) => fetchEquipmentAvailability(link.equipmentId, ev.id));
+          if (equipment.data.length === 0) setEquipmentEditingKey("new");
+        }
+      })
+      .catch(() => {
+        setDetailsResources({ venues: [], equipment: [], staff: [], departments: [] });
+      })
+      .finally(() => setDetailsLoading(false));
+
+    // Assignment option lists (venues/equipment/employees/departments) are
+    // event-independent — fetch them once, the first time any assign
+    // permission is needed, not on every modal open.
+    if (!assignOptionsLoaded && (canAssignVenues || canAssignEquipment || canAssignStaff)) {
+      setAssignOptionsLoaded(true);
+      if (canAssignVenues) getVenues().then(({ data }) => setAllVenues(data)).catch(() => {});
+      if (canAssignEquipment) getEquipment().then(({ data }) => setAllEquipment(data)).catch(() => {});
+      if (canAssignStaff) {
+        getEmployees().then(({ data }) => setAllEmployees(data)).catch(() => {});
+        getDepartments().then(({ data }) => setAllDepartments(data)).catch(() => {});
+      }
+    }
+  };
+
+  // Assigning/unassigning a resource can flip the event's status server-side
+  // (Hold<->Scheduled) — refetch so the modal header, the Holding Area and the
+  // calendar grid all stay accurate, mirroring EventResourcesPage.jsx.
+  const refreshDetailsEvent = async (eventId) => {
+    try {
+      const { data } = await getEvent(eventId);
+      setDetailsEvent(data);
+      setAllEvents((prev) => prev.map((e) => (e.id === data.id ? data : e)));
+    } catch {
+      // Non-fatal — the modal just shows the last-known status.
+    }
+  };
+
+  // The venue row's dropdown just offers every active venue — there's only
+  // ever the one slot in this modal, so nothing to exclude as "already
+  // taken by another row" the way equipment needs to.
+  const venueOptions = useMemo(
+    () => allVenues.filter((v) => v.isActive).map((v) => ({ value: v.id, label: v.name })),
+    [allVenues]
+  );
+
+  const venueDraftCapacity = useMemo(
+    () => allVenues.find((v) => v.id === venueDraftVenueId)?.capacity ?? null,
+    [allVenues, venueDraftVenueId]
+  );
+
+  const detailsPastLocked = isPastEvent(detailsEvent) && !canEditPastEvents;
+
+  // Equipment options exclude whatever's already assigned to another row —
+  // except the row currently being edited's own item, so leaving it
+  // unchanged stays a valid choice.
+  const equipmentOptions = useMemo(() => {
+    const assignedIds = new Set(
+      (detailsResources?.equipment ?? [])
+        .filter((e) => e.equipmentId !== equipmentEditingKey)
+        .map((e) => e.equipmentId)
+    );
+    return allEquipment
+      .filter((e) => e.isActive && !assignedIds.has(e.id))
+      .map((e) => ({ value: e.id, label: e.name }));
+  }, [allEquipment, detailsResources, equipmentEditingKey]);
+
+  const equipmentDraftTotal = useMemo(
+    () => allEquipment.find((e) => e.id === equipmentDraftEquipmentId)?.quantity ?? null,
+    [allEquipment, equipmentDraftEquipmentId]
+  );
+
+  // Whole department hierarchy (top-level root + every descendant) of every
+  // department already linked to this event — an employee from any of these
+  // is ineligible for staff duty (conflict of interest), mirroring
+  // EventStaffService.assertEmployeeEligible / EventResourcesPage.jsx.
+  const blockedDepartmentIds = useMemo(() => {
+    const assignedDepartments = detailsResources?.departments ?? [];
+    if (!allDepartments.length || !assignedDepartments.length) return new Set();
+    const byId = new Map(allDepartments.map((d) => [d.id, d]));
+    const childrenOf = new Map();
+    allDepartments.forEach((d) => {
+      if (d.parentId == null) return;
+      const siblings = childrenOf.get(d.parentId) || [];
+      siblings.push(d.id);
+      childrenOf.set(d.parentId, siblings);
+    });
+    const rootOf = (id) => {
+      let current = byId.get(id);
+      while (current?.parentId != null) current = byId.get(current.parentId);
+      return current?.id ?? id;
+    };
+    const blocked = new Set();
+    const collectSubtree = (id) => {
+      if (blocked.has(id)) return;
+      blocked.add(id);
+      (childrenOf.get(id) || []).forEach(collectSubtree);
+    };
+    assignedDepartments.forEach((ed) => collectSubtree(rootOf(ed.departmentId)));
+    return blocked;
+  }, [allDepartments, detailsResources]);
+
+  const availableEmployeeOptions = useMemo(() => {
+    const assignedIds = new Set((detailsResources?.staff ?? []).map((s) => s.employeeId));
+    return allEmployees
+      .filter((e) => e.isActive && !assignedIds.has(e.id) && !blockedDepartmentIds.has(e.departmentId))
+      .map((e) => ({ value: e.id, label: employeeLabel(e) }));
+  }, [allEmployees, detailsResources, blockedDepartmentIds]);
+
+  // Excludes any duty already at its exam type's configured maximum — the
+  // backend blocks it anyway, this just keeps the picker from offering it.
+  // eslint-disable-next-line no-unused-vars -- kept for the commented-out staff assign form below
+  const dutyTypeOptionsForAssign = useMemo(() => {
+    if (!dutyLimits) return DUTY_TYPE_OPTIONS;
+    const atMax = new Set(
+      dutyLimits.filter((d) => d.maxCount != null && d.currentCount >= d.maxCount).map((d) => d.dutyType)
+    );
+    return DUTY_TYPE_OPTIONS.filter((o) => !atMax.has(o.value));
+  }, [dutyLimits]);
+
+  // Edit-staff modal offers currently-eligible/unassigned employees plus
+  // whichever employee the row being edited already has.
+  const editStaffOptions = useMemo(() => {
+    if (!editingStaffRow) return availableEmployeeOptions;
+    const current = allEmployees.find((e) => e.id === editingStaffRow.employeeId);
+    if (!current) return availableEmployeeOptions;
+    return [{ value: current.id, label: employeeLabel(current) }, ...availableEmployeeOptions];
+  }, [availableEmployeeOptions, allEmployees, editingStaffRow]);
+
+
+  const openDateTimeEdit = () => {
+    setDateTimeEditing(true);
+    setDateDraft(detailsEvent.eventDate ? dayjs(detailsEvent.eventDate) : null);
+    setStartTimeDraft(detailsEvent.startTime ? dayjs(detailsEvent.startTime, "HH:mm") : null);
+    setEndTimeDraft(detailsEvent.endTime ? dayjs(detailsEvent.endTime, "HH:mm") : null);
+  };
+
+  const cancelDateTimeEdit = () => {
+    setDateTimeEditing(false);
+    setDateDraft(null);
+    setStartTimeDraft(null);
+    setEndTimeDraft(null);
+  };
+
+  const canEditDate = canReschedule && !detailsPastLocked;
+  const canEditTimeField = canEditEventTime && !detailsPastLocked;
+
+  const handleSaveDateTime = async () => {
+    if (!detailsEvent) return;
+    setDateTimeSaving(true);
+    setError("");
+    try {
+      if (canEditDate) {
+        await updateEvent(detailsEvent.id, { eventDate: dateDraft ? dateDraft.format("YYYY-MM-DD") : undefined });
+      }
+      if (canEditTimeField) {
+        await updateEventTime(detailsEvent.id, {
+          startTime: startTimeDraft ? startTimeDraft.format("HH:mm") : undefined,
+          endTime: endTimeDraft ? endTimeDraft.format("HH:mm") : undefined,
+        });
+      }
+      cancelDateTimeEdit();
+      await refreshDetailsEvent(detailsEvent.id);
+    } catch (err) {
+      setError(err.response?.data?.message || "Could not save date/time.");
+    } finally {
+      setDateTimeSaving(false);
+    }
+  };
+
+  const openVenueEdit = (record) => {
+    setVenueEditing(true);
+    setVenueDraftVenueId(record.venueId);
+    setVenueDraftSeats(record.seats);
+    fetchVenueAvailability(record.venueId, detailsEvent.id);
+  };
+
+  const cancelVenueEdit = () => {
+    setVenueEditing(false);
+    setVenueDraftVenueId(null);
+    setVenueDraftSeats(null);
+  };
+
+  const handleVenueDraftVenueChange = (venueId) => {
+    setVenueDraftVenueId(venueId);
+    setVenueDraftSeats(null);
+    setVenueAvailability(null);
+    if (venueId) fetchVenueAvailability(venueId, detailsEvent.id);
+  };
+
+  const handleSaveVenue = async () => {
+    if (!detailsEvent || !venueDraftVenueId || !venueDraftSeats) return;
+    const existing = detailsResources?.venues?.[0] ?? null;
+    setVenueSaving(true);
+    setError("");
+    try {
+      const { data } = existing
+        ? await updateEventVenue(detailsEvent.id, existing.venueId, venueDraftVenueId, venueDraftSeats)
+        : await assignEventVenue(detailsEvent.id, venueDraftVenueId, venueDraftSeats);
+      setDetailsResources((prev) => ({
+        ...prev,
+        venues: existing ? prev.venues.map((v) => (v.id === existing.id ? data : v)) : [...prev.venues, data],
+      }));
+      setVenueEditing(false);
+      await refreshDetailsEvent(detailsEvent.id);
+    } catch (err) {
+      setError(err.response?.data?.message || "Could not save venue assignment.");
+    } finally {
+      setVenueSaving(false);
+    }
+  };
+
+  const handleUnassignVenue = async (venueId) => {
+    if (!detailsEvent) return;
+    setRemovingVenueId(venueId);
+    setError("");
+    try {
+      await unassignEventVenue(detailsEvent.id, venueId);
+      setDetailsResources((prev) => ({ ...prev, venues: prev.venues.filter((v) => v.venueId !== venueId) }));
+      setVenueEditing(true);
+      setVenueDraftVenueId(null);
+      setVenueDraftSeats(null);
+      setVenueAvailability(null);
+      await refreshDetailsEvent(detailsEvent.id);
+    } catch (err) {
+      setError(err.response?.data?.message || "Could not remove venue.");
+    } finally {
+      setRemovingVenueId(null);
+    }
+  };
+
+  const startNewEquipmentRow = () => {
+    setEquipmentEditingKey("new");
+    setEquipmentDraftEquipmentId(null);
+    setEquipmentDraftQuantity(null);
+  };
+
+  const openEquipmentEdit = (record) => {
+    setEquipmentEditingKey(record.equipmentId);
+    setEquipmentDraftEquipmentId(record.equipmentId);
+    setEquipmentDraftQuantity(record.quantity);
+    fetchEquipmentAvailability(record.equipmentId, detailsEvent.id);
+  };
+
+  const cancelEquipmentEdit = () => {
+    setEquipmentEditingKey(null);
+    setEquipmentDraftEquipmentId(null);
+    setEquipmentDraftQuantity(null);
+  };
+
+  const handleEquipmentDraftEquipmentChange = (equipmentId) => {
+    setEquipmentDraftEquipmentId(equipmentId);
+    setEquipmentDraftQuantity(null);
+    if (equipmentId) fetchEquipmentAvailability(equipmentId, detailsEvent.id);
+  };
+
+  const handleSaveEquipment = async () => {
+    if (!detailsEvent || !equipmentDraftEquipmentId || !equipmentDraftQuantity) return;
+    const isNew = equipmentEditingKey === "new";
+    setEquipmentSaving(true);
+    setError("");
+    try {
+      const { data } = isNew
+        ? await assignEventEquipment(detailsEvent.id, equipmentDraftEquipmentId, equipmentDraftQuantity)
+        : await updateEventEquipment(detailsEvent.id, equipmentEditingKey, equipmentDraftEquipmentId, equipmentDraftQuantity);
+      setDetailsResources((prev) => ({
+        ...prev,
+        equipment: isNew
+          ? [...prev.equipment, data]
+          : prev.equipment.map((e) => (e.equipmentId === equipmentEditingKey ? data : e)),
+      }));
+      cancelEquipmentEdit();
+      await refreshDetailsEvent(detailsEvent.id);
+    } catch (err) {
+      setError(err.response?.data?.message || "Could not save equipment assignment.");
+    } finally {
+      setEquipmentSaving(false);
+    }
+  };
+
+  const handleUnassignEquipment = async (equipmentId) => {
+    if (!detailsEvent) return;
+    setRemovingEquipmentId(equipmentId);
+    setError("");
+    try {
+      await unassignEventEquipment(detailsEvent.id, equipmentId);
+      setDetailsResources((prev) => ({
+        ...prev,
+        equipment: prev.equipment.filter((e) => e.equipmentId !== equipmentId),
+      }));
+      if (equipmentEditingKey === equipmentId) cancelEquipmentEdit();
+      await refreshDetailsEvent(detailsEvent.id);
+    } catch (err) {
+      setError(err.response?.data?.message || "Could not remove equipment.");
+    } finally {
+      setRemovingEquipmentId(null);
+    }
+  };
+
+  const refreshDutyLimits = () => {
+    if (!detailsEvent) return;
+    getEventStaffDutyLimits(detailsEvent.id).then(({ data }) => setDutyLimits(data)).catch(() => {});
+  };
+
+  // eslint-disable-next-line no-unused-vars -- kept for the commented-out staff assign form below
+  const handleAssignStaff = async () => {
+    if (!detailsEvent || !selectedEmployeeId || !selectedDutyType) return;
+    setAssigningStaff(true);
+    setError("");
+    try {
+      const { data } = await assignEventStaff(detailsEvent.id, selectedEmployeeId, selectedDutyType);
+      setDetailsResources((prev) => ({ ...prev, staff: [...prev.staff, data] }));
+      setSelectedEmployeeId(null);
+      setSelectedDutyType(null);
+      refreshDutyLimits();
+    } catch (err) {
+      setError(err.response?.data?.message || "Could not assign staff.");
+    } finally {
+      setAssigningStaff(false);
+    }
+  };
+
+  // eslint-disable-next-line no-unused-vars -- kept for the commented-out staff table below
+  const handleUnassignStaff = async (employeeId) => {
+    if (!detailsEvent) return;
+    setRemovingStaffEmployeeId(employeeId);
+    setError("");
+    try {
+      await unassignEventStaff(detailsEvent.id, employeeId);
+      setDetailsResources((prev) => ({ ...prev, staff: prev.staff.filter((s) => s.employeeId !== employeeId) }));
+      refreshDutyLimits();
+    } catch (err) {
+      setError(err.response?.data?.message || "Could not remove staff.");
+    } finally {
+      setRemovingStaffEmployeeId(null);
+    }
+  };
+
+  // eslint-disable-next-line no-unused-vars -- kept for the commented-out staff table below
+  const openEditStaffModal = (record) => {
+    setEditingStaffRow(record);
+    staffForm.setFieldsValue({ employeeId: record.employeeId, dutyType: record.dutyType });
+  };
+
+  const handleEditStaffFinish = async (values) => {
+    setStaffModalLoading(true);
+    setError("");
+    try {
+      const { data } = await updateEventStaff(detailsEvent.id, editingStaffRow.employeeId, values.employeeId, values.dutyType);
+      setDetailsResources((prev) => ({
+        ...prev,
+        staff: prev.staff.map((s) => (s.id === editingStaffRow.id ? data : s)),
+      }));
+      setEditingStaffRow(null);
+      staffForm.resetFields();
+      refreshDutyLimits();
+    } catch (err) {
+      setError(err.response?.data?.message || "Could not update staff assignment.");
+    } finally {
+      setStaffModalLoading(false);
+    }
+  };
 
   const goToMonth = (monthDate) => {
     setCurrentMonth(monthDate.startOf("month"));
@@ -265,6 +913,11 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
       (e) => e.eventDate && dayjs(e.eventDate).format("YYYY-MM-DD") === dateStr && (!e.startTime || !e.endTime)
     );
   }, [events, currentDay]);
+
+  const dayOspeOsce = useMemo(
+    () => ospeOsceByDate[currentDay.format("YYYY-MM-DD")] || [],
+    [ospeOsceByDate, currentDay]
+  );
 
   // Pre-scroll the Day view's hour grid to 8:00 whenever it's opened or the
   // date changes, so the working day is visible without an extra scroll.
@@ -361,10 +1014,9 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
               key={ev.id}
               draggable={canReschedule}
               onDragStart={onDragStart(ev.id)}
-              onClick={() => setDetailsEvent(ev)}
+              onClick={() => openDetails(ev)}
               style={{
-                background: "#f0f0f0",
-                border: "1px solid #d9d9d9",
+                ...(ev.examType?.color ? examBlockStyle(ev) : { background: "#f0f0f0", border: "1px solid #d9d9d9" }),
                 borderRadius: 4,
                 padding: "6px 10px",
                 cursor: canReschedule ? "grab" : "pointer",
@@ -485,7 +1137,7 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                 </div>
               ) : (
                 <>
-                  {dayUntimedEvents.length > 0 && (
+                  {(dayUntimedEvents.length > 0 || dayOspeOsce.length > 0) && (
                     <div style={{ display: "flex", border: "1px solid #f0f0f0", borderBottom: "none", borderRadius: "6px 6px 0 0" }}>
                       <div style={{ width: 56, flexShrink: 0, borderRight: "1px solid #f0f0f0", fontSize: 10, color: "#bfbfbf", padding: "4px 6px" }}>
                         All-day
@@ -496,10 +1148,10 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                           return (
                             <div
                               key={ev.id}
-                              onClick={() => { if (!isHold) setDetailsEvent(ev); }}
+                              onClick={() => { if (!isHold) openDetails(ev); }}
                               title={isHold ? `${ev.fullName} (Hold)` : ev.fullName}
                               style={{
-                                ...EXAM_BLOCK_STYLE,
+                                ...examBlockStyle(ev),
                                 fontSize: 11,
                                 lineHeight: "18px",
                                 borderRadius: 3,
@@ -512,10 +1164,27 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                             </div>
                           );
                         })}
+                        {dayOspeOsce.map((o) => (
+                          <div
+                            key={`ospe-${o.id}`}
+                            onClick={() => openOspeOsceDetails(o)}
+                            title={`OSPE/OSCE: ${ospeOscePapersLabel(o)}`}
+                            style={{
+                              ...ospeOsceBlockStyle(o),
+                              fontSize: 11,
+                              lineHeight: "18px",
+                              borderRadius: 3,
+                              padding: "0 6px",
+                              cursor: "pointer",
+                            }}
+                          >
+                            OSPE/OSCE: {ospeOscePapersLabel(o)}
+                          </div>
+                        ))}
                       </div>
                     </div>
                   )}
-                  <div ref={dayGridRef} style={{ display: "flex", border: "1px solid #f0f0f0", borderRadius: dayUntimedEvents.length > 0 ? "0 0 6px 6px" : 6, maxHeight: "70vh", overflowY: "auto" }}>
+                  <div ref={dayGridRef} style={{ display: "flex", border: "1px solid #f0f0f0", borderRadius: (dayUntimedEvents.length > 0 || dayOspeOsce.length > 0) ? "0 0 6px 6px" : 6, maxHeight: "70vh", overflowY: "auto" }}>
                   {/* Time labels */}
                   <div style={{ width: 56, flexShrink: 0, borderRight: "1px solid #f0f0f0" }}>
                     {HALF_HOURS.map((i) => (
@@ -572,7 +1241,7 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                       return (
                       <div
                         key={ev.id}
-                        onClick={() => { if (!isHold) setDetailsEvent(ev); }}
+                        onClick={() => { if (!isHold) openDetails(ev); }}
                         title={isHold ? `${ev.fullName} (Hold)` : ev.fullName}
                         style={{
                           position: "absolute",
@@ -580,7 +1249,7 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                           height: Math.max(((ev.endMin - ev.startMin) / 60) * DAY_ROW_HEIGHT - 2, 18),
                           left: `calc(${(ev.colIndex / ev.totalCols) * 100}% + 2px)`,
                           width: `calc(${100 / ev.totalCols}% - 4px)`,
-                          ...EXAM_BLOCK_STYLE,
+                          ...examBlockStyle(ev),
                           borderRadius: 4,
                           padding: "3px 6px",
                           fontSize: 11,
@@ -675,12 +1344,13 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
 
                   {/* All-day strip — dated events with no time set yet; not
                       scrolled, so it also needs the scrollbar-width padding. */}
-                  {weekDays.some((day) => (weekUntimedEventsByDate[day.format("YYYY-MM-DD")] || []).length > 0) && (
+                  {weekDays.some((day) => (weekUntimedEventsByDate[day.format("YYYY-MM-DD")] || []).length > 0 || (ospeOsceByDate[day.format("YYYY-MM-DD")] || []).length > 0) && (
                     <div style={{ display: "grid", gridTemplateColumns: "56px repeat(7, 1fr)", borderBottom: "1px solid #f0f0f0", paddingRight: weekScrollbarWidth }}>
                       <div style={{ fontSize: 10, color: "#bfbfbf", padding: "4px 6px", borderRight: "1px solid #f0f0f0" }}>All-day</div>
                       {weekDays.map((day) => {
                         const dateStr = day.format("YYYY-MM-DD");
                         const untimed = weekUntimedEventsByDate[dateStr] || [];
+                        const ospeOsceForDay = ospeOsceByDate[dateStr] || [];
                         return (
                           <div key={dateStr} style={{ borderLeft: "1px solid #f0f0f0", padding: 4, display: "flex", flexDirection: "column", gap: 3 }}>
                             {untimed.map((ev) => {
@@ -688,10 +1358,10 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                               return (
                                 <div
                                   key={ev.id}
-                                  onClick={() => { if (!isHold) setDetailsEvent(ev); }}
+                                  onClick={() => { if (!isHold) openDetails(ev); }}
                                   title={isHold ? `${ev.fullName} (Hold)` : ev.fullName}
                                   style={{
-                                    ...EXAM_BLOCK_STYLE,
+                                    ...examBlockStyle(ev),
                                     fontSize: 10,
                                     lineHeight: "16px",
                                     borderRadius: 3,
@@ -707,6 +1377,26 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                                 </div>
                               );
                             })}
+                            {ospeOsceForDay.map((o) => (
+                              <div
+                                key={`ospe-${o.id}`}
+                                onClick={() => openOspeOsceDetails(o)}
+                                title={`OSPE/OSCE: ${ospeOscePapersLabel(o)}`}
+                                style={{
+                                  ...ospeOsceBlockStyle(o),
+                                  fontSize: 10,
+                                  lineHeight: "16px",
+                                  borderRadius: 3,
+                                  padding: "0 4px",
+                                  cursor: "pointer",
+                                  whiteSpace: "nowrap",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                }}
+                              >
+                                OSPE/OSCE: {ospeOscePapersLabel(o)}
+                              </div>
+                            ))}
                           </div>
                         );
                       })}
@@ -780,7 +1470,7 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                             return (
                               <div
                                 key={ev.id}
-                                onClick={() => { if (!isHold) setDetailsEvent(ev); }}
+                                onClick={() => { if (!isHold) openDetails(ev); }}
                                 title={isHold ? `${ev.fullName} (Hold)` : ev.fullName}
                                 style={{
                                   position: "absolute",
@@ -788,7 +1478,7 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                                   height: Math.max(((ev.endMin - ev.startMin) / 60) * DAY_ROW_HEIGHT - 2, 16),
                                   left: `calc(${(ev.colIndex / ev.totalCols) * 100}% + 1px)`,
                                   width: `calc(${100 / ev.totalCols}% - 2px)`,
-                                  ...EXAM_BLOCK_STYLE,
+                                  ...examBlockStyle(ev),
                                   borderRadius: 3,
                                   padding: "2px 4px",
                                   fontSize: 10,
@@ -852,6 +1542,7 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                         const inMonth = day.month() === currentMonth.month();
                         const isToday = day.isSame(dayjs(), "day");
                         const dayEvents = eventsByDate[dateStr] || [];
+                        const dayOspeOsceEntries = ospeOsceByDate[dateStr] || [];
                         const isDragOver = dragOverDate === dateStr;
 
                         return (
@@ -915,15 +1606,16 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                             <div className="timetable-thin-scroll" style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: "auto", display: "flex", flexDirection: "column", gap: 3 }}>
                               {dayEvents.map((ev) => {
                                 const isHold = ev.status === "hold";
+                                const isDraggable = canReschedule && (!isPastEvent(ev) || canEditPastEvents);
                                 return (
                                 <div
                                   key={ev.id}
-                                  draggable={canReschedule}
+                                  draggable={isDraggable}
                                   onDragStart={onDragStart(ev.id)}
-                                  onClick={(e) => { e.stopPropagation(); if (!isHold) setDetailsEvent(ev); }}
+                                  onClick={(e) => { e.stopPropagation(); openDetails(ev); }}
                                   title={isHold ? `${ev.fullName} (Hold)` : ev.fullName}
                                   style={{
-                                    ...EXAM_BLOCK_STYLE,
+                                    ...examBlockStyle(ev),
                                     fontSize: 11,
                                     lineHeight: "18px",
                                     height: 18,
@@ -932,7 +1624,7 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                                     borderRadius: 3,
                                     padding: "0 6px",
                                     whiteSpace: "nowrap",
-                                    cursor: canReschedule ? "grab" : (isHold ? "not-allowed" : "pointer"),
+                                    cursor: isDraggable ? "grab" : "pointer",
                                     opacity: reschedulingId === ev.id ? 0.5 : isHold ? 0.5 : 1,
                                   }}
                                 >
@@ -940,6 +1632,27 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                                 </div>
                                 );
                               })}
+                              {dayOspeOsceEntries.map((o) => (
+                                <div
+                                  key={`ospe-${o.id}`}
+                                  onClick={(e) => { e.stopPropagation(); openOspeOsceDetails(o); }}
+                                  title={`OSPE/OSCE: ${ospeOscePapersLabel(o)}`}
+                                  style={{
+                                    ...ospeOsceBlockStyle(o),
+                                    fontSize: 11,
+                                    lineHeight: "18px",
+                                    height: 18,
+                                    flexShrink: 0,
+                                    alignSelf: "flex-start",
+                                    borderRadius: 3,
+                                    padding: "0 6px",
+                                    whiteSpace: "nowrap",
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  OSPE/OSCE: {ospeOscePapersLabel(o)}
+                                </div>
+                              ))}
                             </div>
                           </div>
                         );
@@ -957,28 +1670,568 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
 
       {/* Event details modal */}
       <Modal
-        title={detailsEvent?.fullName}
+        title={
+          detailsEvent && (
+            <Space align="center">
+              {detailsModalTitle(detailsEvent)}
+              <Tag color={STATUS_TAG_COLORS[detailsEvent.status]} style={{ marginBottom: 0 }}>
+                {STATUS_LABELS[detailsEvent.status]}
+              </Tag>
+            </Space>
+          )
+        }
         open={!!detailsEvent}
-        onCancel={() => setDetailsEvent(null)}
+        onCancel={() => { setDetailsEvent(null); setDetailsResources(null); }}
         footer={null}
         centered
+        width={780}
       >
         {detailsEvent && (
-          <Descriptions bordered column={1} size="small" style={{ marginTop: 8 }}>
-            <Descriptions.Item label="Exam Type">{detailsEvent.examType?.fullName ?? "—"}</Descriptions.Item>
-            <Descriptions.Item label="Date">
-              {detailsEvent.eventDate ? dayjs(detailsEvent.eventDate).format("DD MMM YYYY") : "Not set"}
-            </Descriptions.Item>
-            <Descriptions.Item label="Time">
-              {detailsEvent.startTime && detailsEvent.endTime
-                ? `${detailsEvent.startTime} – ${detailsEvent.endTime}`
-                : "Not set"}
-            </Descriptions.Item>
-            <Descriptions.Item label="Status">
-              <Tag color={STATUS_TAG_COLORS[detailsEvent.status]}>{STATUS_LABELS[detailsEvent.status]}</Tag>
-            </Descriptions.Item>
-          </Descriptions>
+          <>
+            {/* Title already says program/degree/paper/exam type/session —
+                repeating them in a table below is just noise, for anyone.
+                Status now sits next to the title itself (see Modal's title
+                prop above), not repeated here. */}
+            <Table
+              rowKey={() => "date-time"}
+              size="small"
+              pagination={false}
+              bordered
+              style={{ marginTop: 8 }}
+              dataSource={[{}]}
+              columns={[
+                {
+                  title: "Date",
+                  render: () =>
+                    dateTimeEditing && canEditDate ? (
+                      <DatePicker
+                        size="small"
+                        style={{ width: "100%" }}
+                        format="YYYY-MM-DD"
+                        value={dateDraft}
+                        onChange={setDateDraft}
+                      />
+                    ) : detailsEvent.eventDate ? (
+                      dayjs(detailsEvent.eventDate).format("DD MMM YYYY")
+                    ) : (
+                      "Not set"
+                    ),
+                },
+                {
+                  title: "Time",
+                  render: () =>
+                    dateTimeEditing && canEditTimeField ? (
+                      <Space size={4}>
+                        <TimePicker size="small" style={{ width: 100 }} format="HH:mm" value={startTimeDraft} onChange={setStartTimeDraft} />
+                        <span>–</span>
+                        <TimePicker size="small" style={{ width: 100 }} format="HH:mm" value={endTimeDraft} onChange={setEndTimeDraft} />
+                      </Space>
+                    ) : detailsEvent.startTime && detailsEvent.endTime ? (
+                      `${detailsEvent.startTime} – ${detailsEvent.endTime}`
+                    ) : (
+                      "Not set"
+                    ),
+                },
+                ...(canEditDate || canEditTimeField
+                  ? [
+                      {
+                        title: "Actions",
+                        width: 90,
+                        align: "center",
+                        render: () =>
+                          dateTimeEditing ? (
+                            <Space>
+                              <Tooltip title="Save">
+                                <Button
+                                  size="small"
+                                  type="primary"
+                                  icon={<SaveOutlined />}
+                                  loading={dateTimeSaving}
+                                  onClick={handleSaveDateTime}
+                                />
+                              </Tooltip>
+                              <Tooltip title="Cancel">
+                                <Button size="small" icon={<CloseOutlined />} onClick={cancelDateTimeEdit} />
+                              </Tooltip>
+                            </Space>
+                          ) : (
+                            <Tooltip title="Edit">
+                              <Button size="small" icon={<EditOutlined />} onClick={openDateTimeEdit} />
+                            </Tooltip>
+                          ),
+                      },
+                    ]
+                  : []),
+              ]}
+            />
+
+            {canManageResources && detailsPastLocked && (
+              <Alert
+                type="warning"
+                showIcon
+                message="This event's date has already passed — resources can no longer be changed without permission to edit past events."
+                style={{ marginTop: 16 }}
+              />
+            )}
+
+            {detailsLoading ? (
+              <div style={{ textAlign: "center", padding: 24 }}>
+                <Spin />
+              </div>
+            ) : (
+              detailsResources &&
+              (canManageResources ? (
+                <>
+                  <Title level={5} style={{ marginTop: 20, marginBottom: 8 }}>Departments</Title>
+                  {!canViewDepartments ? (
+                    <Text type="secondary">You don't have permission to view this.</Text>
+                  ) : detailsResources.departments.length === 0 ? (
+                    <Text type="secondary">None linked yet.</Text>
+                  ) : (
+                    <Space wrap>
+                      {detailsResources.departments.map((d) => (
+                        <Tag key={d.departmentId}>{d.department?.name ?? "—"}</Tag>
+                      ))}
+                    </Space>
+                  )}
+
+                  <Title level={5} style={{ marginTop: 20, marginBottom: 8 }}>Venues</Title>
+                  {!canViewVenues ? (
+                    <Text type="secondary">You don't have permission to view this.</Text>
+                  ) : (
+                    <Table
+                      rowKey={(r) => r.id ?? "draft"}
+                      size="small"
+                      pagination={false}
+                      dataSource={venueEditing ? [{ __draft: true }] : detailsResources.venues}
+                      locale={{ emptyText: <Empty description="None assigned yet." image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+                      columns={[
+                        {
+                          title: "Name",
+                          render: (_, r) =>
+                            r.__draft ? (
+                              <Select
+                                size="small"
+                                style={{ width: "100%" }}
+                                placeholder="Select venue"
+                                options={venueOptions}
+                                value={venueDraftVenueId}
+                                onChange={handleVenueDraftVenueChange}
+                                showSearch
+                                filterOption={(input, option) => option.label.toLowerCase().includes(input.toLowerCase())}
+                              />
+                            ) : (
+                              r.venue?.name ?? "—"
+                            ),
+                        },
+                        {
+                          title: "Total Seats",
+                          render: (_, r) => (r.__draft ? (venueDraftCapacity ?? "—") : (r.venue?.capacity ?? "—")),
+                        },
+                        {
+                          title: "Available Seats",
+                          render: (_, r) => {
+                            const venueId = r.__draft ? venueDraftVenueId : r.venueId;
+                            if (!venueId) return "—";
+                            if (venueAvailabilityLoading) return <Spin size="small" />;
+                            return venueAvailability?.availableSeats ?? "—";
+                          },
+                        },
+                        {
+                          title: "Seats Reserved",
+                          render: (_, r) =>
+                            r.__draft ? (
+                              <InputNumber
+                                size="small"
+                                min={1}
+                                max={venueAvailability?.availableSeats}
+                                value={venueDraftSeats}
+                                onChange={setVenueDraftSeats}
+                                disabled={!venueDraftVenueId}
+                                style={{ width: 90 }}
+                              />
+                            ) : (
+                              (r.seats ?? "—")
+                            ),
+                        },
+                        {
+                          title: "Remaining Seats",
+                          render: (_, r) => {
+                            const available = venueAvailability?.availableSeats;
+                            const reserved = r.__draft ? venueDraftSeats : r.seats;
+                            if (available == null || reserved == null) return "—";
+                            return Math.max(available - reserved, 0);
+                          },
+                        },
+                        {
+                          title: "Actions",
+                          width: 90,
+                          align: "center",
+                          render: (_, r) =>
+                            r.__draft ? (
+                              <Space>
+                                <Tooltip title="Save">
+                                  <Button
+                                    size="small"
+                                    type="primary"
+                                    icon={<SaveOutlined />}
+                                    disabled={!venueDraftVenueId || !venueDraftSeats}
+                                    loading={venueSaving}
+                                    onClick={handleSaveVenue}
+                                  />
+                                </Tooltip>
+                                {detailsResources.venues[0] && (
+                                  <Tooltip title="Cancel">
+                                    <Button size="small" icon={<CloseOutlined />} onClick={cancelVenueEdit} />
+                                  </Tooltip>
+                                )}
+                              </Space>
+                            ) : (
+                              <Space>
+                                {canAssignVenues && !detailsPastLocked && (
+                                  <Tooltip title="Edit">
+                                    <Button size="small" icon={<EditOutlined />} onClick={() => openVenueEdit(r)} />
+                                  </Tooltip>
+                                )}
+                                {canUnassignVenues && !detailsPastLocked && (
+                                  <Tooltip title="Remove">
+                                    <Button
+                                      size="small"
+                                      danger
+                                      icon={<DeleteOutlined />}
+                                      loading={removingVenueId === r.venueId}
+                                      onClick={() => handleUnassignVenue(r.venueId)}
+                                    />
+                                  </Tooltip>
+                                )}
+                              </Space>
+                            ),
+                        },
+                      ]}
+                    />
+                  )}
+
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 20, marginBottom: 8 }}>
+                    <Title level={5} style={{ margin: 0 }}>Equipment</Title>
+                    {canAssignEquipment && !detailsPastLocked && equipmentEditingKey === null && (
+                      <Tooltip title="Add Equipment">
+                        <Button type="text" size="small" icon={<PlusOutlined />} onClick={startNewEquipmentRow} />
+                      </Tooltip>
+                    )}
+                  </div>
+                  {!canViewEquipment ? (
+                    <Text type="secondary">You don't have permission to view this.</Text>
+                  ) : (
+                    <Table
+                      rowKey={(r) => r.id ?? "draft"}
+                      size="small"
+                      pagination={false}
+                      dataSource={equipmentEditingKey === "new" ? [...detailsResources.equipment, { __draft: true }] : detailsResources.equipment}
+                      locale={{ emptyText: <Empty description="None assigned yet." image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+                      columns={[
+                        {
+                          title: "Name",
+                          render: (_, r) => {
+                            const editingThisRow = r.__draft || equipmentEditingKey === r.equipmentId;
+                            if (!editingThisRow) return r.equipment?.name ?? "—";
+                            return (
+                              <Select
+                                size="small"
+                                style={{ width: "100%" }}
+                                placeholder="Select equipment"
+                                options={equipmentOptions}
+                                value={equipmentDraftEquipmentId}
+                                onChange={handleEquipmentDraftEquipmentChange}
+                                showSearch
+                                filterOption={(input, option) => option.label.toLowerCase().includes(input.toLowerCase())}
+                              />
+                            );
+                          },
+                        },
+                        {
+                          title: "Total Quantity",
+                          render: (_, r) => {
+                            const editingThisRow = r.__draft || equipmentEditingKey === r.equipmentId;
+                            return editingThisRow ? (equipmentDraftTotal ?? "—") : (r.equipment?.quantity ?? "—");
+                          },
+                        },
+                        {
+                          title: "Available Quantity",
+                          render: (_, r) => {
+                            const id = r.__draft ? equipmentDraftEquipmentId : r.equipmentId;
+                            if (!id) return "—";
+                            if (equipmentAvailabilityLoadingId === id) return <Spin size="small" />;
+                            return equipmentAvailabilityMap[id]?.availableQuantity ?? "—";
+                          },
+                        },
+                        {
+                          title: "Assigned Quantity",
+                          render: (_, r) => {
+                            const editingThisRow = r.__draft || equipmentEditingKey === r.equipmentId;
+                            return editingThisRow ? (
+                              <InputNumber
+                                size="small"
+                                min={1}
+                                max={equipmentAvailabilityMap[equipmentDraftEquipmentId]?.availableQuantity}
+                                value={equipmentDraftQuantity}
+                                onChange={setEquipmentDraftQuantity}
+                                disabled={!equipmentDraftEquipmentId}
+                                style={{ width: 80 }}
+                              />
+                            ) : (
+                              (r.quantity ?? "—")
+                            );
+                          },
+                        },
+                        {
+                          title: "Remaining Quantity",
+                          render: (_, r) => {
+                            const editingThisRow = r.__draft || equipmentEditingKey === r.equipmentId;
+                            const id = r.__draft ? equipmentDraftEquipmentId : r.equipmentId;
+                            const available = equipmentAvailabilityMap[id]?.availableQuantity;
+                            const assigned = editingThisRow ? equipmentDraftQuantity : r.quantity;
+                            if (available == null || assigned == null) return "—";
+                            return Math.max(available - assigned, 0);
+                          },
+                        },
+                        {
+                          title: "Actions",
+                          width: 90,
+                          align: "center",
+                          render: (_, r) => {
+                            const editingThisRow = r.__draft || equipmentEditingKey === r.equipmentId;
+                            if (editingThisRow) {
+                              return (
+                                <Space>
+                                  <Tooltip title="Save">
+                                    <Button
+                                      size="small"
+                                      type="primary"
+                                      icon={<SaveOutlined />}
+                                      disabled={!equipmentDraftEquipmentId || !equipmentDraftQuantity}
+                                      loading={equipmentSaving}
+                                      onClick={handleSaveEquipment}
+                                    />
+                                  </Tooltip>
+                                  {/* Same rule as the Venue row: hidden when
+                                      this is the sole auto-shown row (nothing
+                                      assigned yet) — cancelling would leave
+                                      no way back in without the modal
+                                      reopening. Any other row always has the
+                                      "+" to return to. */}
+                                  {detailsResources.equipment.length > 0 && (
+                                    <Tooltip title="Cancel">
+                                      <Button size="small" icon={<CloseOutlined />} onClick={cancelEquipmentEdit} />
+                                    </Tooltip>
+                                  )}
+                                </Space>
+                              );
+                            }
+                            return (
+                              <Space>
+                                {canAssignEquipment && !detailsPastLocked && equipmentEditingKey === null && (
+                                  <Tooltip title="Edit">
+                                    <Button size="small" icon={<EditOutlined />} onClick={() => openEquipmentEdit(r)} />
+                                  </Tooltip>
+                                )}
+                                {canUnassignEquipment && !detailsPastLocked && (
+                                  <Tooltip title="Remove">
+                                    <Button
+                                      size="small"
+                                      danger
+                                      icon={<DeleteOutlined />}
+                                      loading={removingEquipmentId === r.equipmentId}
+                                      onClick={() => handleUnassignEquipment(r.equipmentId)}
+                                    />
+                                  </Tooltip>
+                                )}
+                              </Space>
+                            );
+                          },
+                        },
+                      ]}
+                    />
+                  )}
+
+                  <Title level={5} style={{ marginTop: 20, marginBottom: 8 }}>Event Staff</Title>
+                  {!canViewStaff ? (
+                    <Text type="secondary">You don't have permission to view this.</Text>
+                  ) : (
+                    <>
+                      {dutyLimits && (
+                        <Space size={[8, 4]} wrap style={{ marginBottom: 12 }}>
+                          {dutyLimits
+                            .filter((d) => d.hasRule)
+                            .map((d) => (
+                              <Tag key={d.dutyType}>
+                                {DUTY_TYPE_LABELS[d.dutyType]}: {d.minCount}
+                              </Tag>
+                            ))}
+                        </Space>
+                      )}
+                      {/* Staff assigning form + table — commented out per
+                          request; this section now only shows the required
+                          headcount per duty type as tags above.
+                      {canAssignStaff && !detailsPastLocked && (
+                        <Space style={{ marginBottom: 12 }} wrap>
+                          <Select
+                            placeholder="Select an employee to assign"
+                            options={availableEmployeeOptions}
+                            value={selectedEmployeeId}
+                            onChange={setSelectedEmployeeId}
+                            showSearch
+                            filterOption={(input, option) => option.label.toLowerCase().includes(input.toLowerCase())}
+                            style={{ width: 280 }}
+                          />
+                          <Select
+                            placeholder="Select duty"
+                            options={dutyTypeOptionsForAssign}
+                            value={selectedDutyType}
+                            onChange={setSelectedDutyType}
+                            style={{ width: 180 }}
+                          />
+                          <Button
+                            type="primary"
+                            icon={<PlusOutlined />}
+                            disabled={!selectedEmployeeId || !selectedDutyType}
+                            loading={assigningStaff}
+                            onClick={handleAssignStaff}
+                          >
+                            Assign
+                          </Button>
+                        </Space>
+                      )}
+                      <Table
+                        rowKey="employeeId"
+                        size="small"
+                        pagination={false}
+                        dataSource={detailsResources.staff}
+                        locale={{ emptyText: <Empty description="None assigned yet." image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+                        columns={[
+                          {
+                            title: "Name",
+                            render: (_, r) =>
+                              `${r.employee?.firstName ?? ""} ${r.employee?.lastName ?? ""}`.trim() || "—",
+                          },
+                          { title: "Department", render: (_, r) => r.employee?.department?.name ?? "—" },
+                          { title: "Duty", render: (_, r) => DUTY_TYPE_LABELS[r.dutyType] ?? r.dutyType },
+                          {
+                            title: "Actions",
+                            width: 90,
+                            align: "center",
+                            render: (_, r) => (
+                              <Space>
+                                {canAssignStaff && !detailsPastLocked && (
+                                  <Tooltip title="Edit">
+                                    <Button size="small" icon={<EditOutlined />} onClick={() => openEditStaffModal(r)} />
+                                  </Tooltip>
+                                )}
+                                {canUnassignStaff && !detailsPastLocked && (
+                                  <Tooltip title="Remove">
+                                    <Button
+                                      size="small"
+                                      danger
+                                      icon={<DeleteOutlined />}
+                                      loading={removingStaffEmployeeId === r.employeeId}
+                                      onClick={() => handleUnassignStaff(r.employeeId)}
+                                    />
+                                  </Tooltip>
+                                )}
+                              </Space>
+                            ),
+                          },
+                        ]}
+                      />
+                      */}
+                    </>
+                  )}
+                </>
+              ) : (
+                // Read-only viewer: plain labeled lists instead of tables with
+                // Assign controls/Actions columns they can't use anyway.
+                <>
+                  <Title level={5} style={{ marginTop: 20, marginBottom: 8 }}>Department(s)</Title>
+                  {!canViewDepartments ? (
+                    <Text type="secondary">You don't have permission to view this.</Text>
+                  ) : detailsResources.departments.length === 0 ? (
+                    <Text type="secondary">None linked yet.</Text>
+                  ) : (
+                    <Text>{detailsResources.departments.map((d) => d.department?.name ?? "—").join(", ")}</Text>
+                  )}
+
+                  <Title level={5} style={{ marginTop: 20, marginBottom: 8 }}>Venue(s)</Title>
+                  {!canViewVenues ? (
+                    <Text type="secondary">You don't have permission to view this.</Text>
+                  ) : detailsResources.venues.length === 0 ? (
+                    <Text type="secondary">None assigned yet.</Text>
+                  ) : (
+                    <div>
+                      {detailsResources.venues.map((v) => (
+                        <div key={v.venueId}>{v.venue?.name ?? "—"} – {v.venue?.location ?? "—"}</div>
+                      ))}
+                    </div>
+                  )}
+
+                  <Title level={5} style={{ marginTop: 20, marginBottom: 8 }}>Equipment</Title>
+                  {!canViewEquipment ? (
+                    <Text type="secondary">You don't have permission to view this.</Text>
+                  ) : detailsResources.equipment.length === 0 ? (
+                    <Text type="secondary">None assigned yet.</Text>
+                  ) : (
+                    <div>
+                      {detailsResources.equipment.map((e) => (
+                        <div key={e.equipmentId}>{e.equipment?.name ?? "—"} – {e.equipment?.description || "—"}</div>
+                      ))}
+                    </div>
+                  )}
+
+                  <Title level={5} style={{ marginTop: 20, marginBottom: 8 }}>Duty Staff</Title>
+                  {!canViewStaff ? (
+                    <Text type="secondary">You don't have permission to view this.</Text>
+                  ) : detailsResources.staff.length === 0 ? (
+                    <Text type="secondary">None assigned yet.</Text>
+                  ) : (
+                    <div>
+                      {detailsResources.staff.map((s) => (
+                        <div key={s.employeeId}>
+                          {`${s.employee?.firstName ?? ""} ${s.employee?.lastName ?? ""}`.trim() || "—"} from{" "}
+                          {s.employee?.department?.name ?? "—"} as {DUTY_TYPE_LABELS[s.dutyType] ?? s.dutyType}.
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ))
+            )}
+          </>
         )}
+      </Modal>
+
+
+      {/* Edit Staff Assignment Modal */}
+      <Modal
+        title="Edit Staff Assignment"
+        open={!!editingStaffRow}
+        onCancel={() => { setEditingStaffRow(null); staffForm.resetFields(); }}
+        onOk={() => staffForm.submit()}
+        okText="Save"
+        confirmLoading={staffModalLoading}
+        destroyOnClose
+        centered
+      >
+        <Form form={staffForm} layout="vertical" onFinish={handleEditStaffFinish} requiredMark={false} style={{ marginTop: 16 }}>
+          <Form.Item name="employeeId" label="Employee" rules={[{ required: true, message: "Please select an employee." }]}>
+            <Select
+              placeholder="Select employee"
+              options={editStaffOptions}
+              showSearch
+              filterOption={(input, option) => option.label.toLowerCase().includes(input.toLowerCase())}
+            />
+          </Form.Item>
+          <Form.Item name="dutyType" label="Duty" rules={[{ required: true, message: "Please select a duty." }]}>
+            <Select placeholder="Select duty" options={DUTY_TYPE_OPTIONS} />
+          </Form.Item>
+        </Form>
       </Modal>
 
       {/* Quick-add Event modal, opened from a Month view day box's "+" icon */}
@@ -986,6 +2239,7 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
         open={addModalOpen}
         editingRecord={null}
         initialDate={addModalDate}
+        existingEvents={events}
         onCancel={() => setAddModalOpen(false)}
         onSuccess={handleAddModalSuccess}
         onError={setError}
@@ -1000,6 +2254,51 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
           onError={setError}
         />
       )}
+
+      {/* OSPE/OSCE details — read-only summary; editing lives on the
+          dedicated OSPE/OSCE page since it's scheduled independently of
+          Theory events (no venue/time/staff/equipment assignment here). */}
+      <Modal
+        title={
+          ospeOsceDetails && (
+            <Space align="center">
+              {`OSPE/OSCE — ${ospeOsceClassLabel(ospeOsceDetails)}`}
+              <Tag color={STATUS_TAG_COLORS[ospeOsceDetails.status]} style={{ marginBottom: 0 }}>
+                {STATUS_LABELS[ospeOsceDetails.status]}
+              </Tag>
+            </Space>
+          )
+        }
+        open={!!ospeOsceDetails}
+        onCancel={() => setOspeOsceDetails(null)}
+        footer={null}
+        destroyOnClose
+        centered
+      >
+        {ospeOsceDetails && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
+            <div>
+              <Text type="secondary">Course/Papers: </Text>
+              {ospeOscePapersLabel(ospeOsceDetails) || "—"}
+            </div>
+            <div>
+              <Text type="secondary">Exam Type: </Text>
+              {ospeOsceDetails.examType?.fullName ?? "—"}
+            </div>
+            <div>
+              <Text type="secondary">Venue: </Text>
+              {ospeOsceDetails.venue?.name ?? "—"}
+            </div>
+            <div>
+              <Text type="secondary">Date Range: </Text>
+              {ospeOsceDateRangeLabel(ospeOsceDetails)}
+            </div>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              Manage this entry from the OSPE/OSCE page.
+            </Text>
+          </div>
+        )}
+      </Modal>
     </DashboardLayout>
   );
 }

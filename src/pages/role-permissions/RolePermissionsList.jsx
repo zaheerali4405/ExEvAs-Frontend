@@ -31,6 +31,7 @@ const ACTION_LABELS = {
   "update-time":         "Update Time",
   "update-status":       "Update Status",
   "schedule-weekend":    "Schedule Weekend",
+  "update-past":         "Update Past Events",
   "send":                "Send",
 };
 
@@ -38,7 +39,7 @@ const ACTION_ORDER = [
   "read-all", "read", "create", "update", "activate",
   "lock", "toggle-2fa", "assign", "unassign", "set-main",
   "read-departmental", "create-departmental",
-  "update-time", "update-status", "schedule-weekend", "send",
+  "update-time", "update-status", "schedule-weekend", "update-past", "send",
 ];
 
 const RESOURCE_LABELS = {
@@ -64,6 +65,7 @@ const RESOURCE_LABELS = {
   "venue":              "Venue",
   "equipment":          "Equipment",
   "moderation-meeting": "Moderation Meeting",
+  "ospe-osce":          "OSPE/OSCE",
   "event":              "Event",
   "event-venue":        "Event Venue",
   "event-equipment":    "Event Equipment",

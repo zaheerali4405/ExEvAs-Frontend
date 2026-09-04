@@ -7,3 +7,5 @@ export const updateEventVenue = (eventId, currentVenueId, venueId, seats) =>
   axiosClient.patch(`/event-venues/event/${eventId}/venue/${currentVenueId}`, { venueId, seats });
 export const unassignEventVenue = (eventId, venueId) =>
   axiosClient.delete(`/event-venues/event/${eventId}/venue/${venueId}`);
+export const getEventVenueAvailability = (venueId, eventId) =>
+  axiosClient.get('/event-venues/availability', { params: { venueId, eventId } });

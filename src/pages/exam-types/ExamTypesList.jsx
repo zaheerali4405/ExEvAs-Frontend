@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import {
   Table, Input, Select, Button, Tag, Alert, Space, Tooltip,
-  Pagination, Modal, Form,
+  Pagination, Modal, Form, ColorPicker, InputNumber, Typography,
 } from "antd";
 import { EditOutlined, DownloadOutlined } from "@ant-design/icons";
 import DashboardLayout from "../../layouts/DashboardLayout";
@@ -10,7 +10,23 @@ import { getExamTypes, createExamType, updateExamType, setExamTypeStatus } from 
 import { exportToExcel } from "../../utils/exportExcel";
 import { useAuth } from "../../context/AuthContext";
 
+const { Text } = Typography;
+
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+
+const DUTY_TYPE_OPTIONS = [
+  { value: "superintendent",        label: "Superintendent" },
+  { value: "deputy_superintendent", label: "Deputy Superintendent" },
+  { value: "invigilator",           label: "Invigilator" },
+  { value: "nomes_admin",           label: "NOMES Admin" },
+  { value: "facilitator",           label: "Facilitator" },
+  { value: "water_man",             label: "Water Man" },
+  { value: "janitorial",            label: "Janitorial" },
+];
+const DUTY_TYPE_LABELS = Object.fromEntries(DUTY_TYPE_OPTIONS.map((o) => [o.value, o.label]));
+
+const emptyDutyRules = () =>
+  DUTY_TYPE_OPTIONS.map((o) => ({ dutyType: o.value, minCount: 0, maxCount: null, studentsPerInvigilator: null }));
 
 const searchableColumns = [
   { value: "fullName",  label: "Full Name" },
@@ -46,6 +62,8 @@ export default function ExamTypesList() {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
+  const [colorDraft, setColorDraft] = useState(undefined);
+  const [dutyRulesDraft, setDutyRulesDraft] = useState(emptyDutyRules());
   const [form] = Form.useForm();
 
   useEffect(() => {
@@ -105,23 +123,54 @@ export default function ExamTypesList() {
   const openAddModal = () => {
     setEditingRecord(null);
     form.resetFields();
+    setColorDraft(undefined);
+    setDutyRulesDraft(emptyDutyRules());
     setModalOpen(true);
   };
 
   const openEditModal = (record) => {
     setEditingRecord(record);
     form.setFieldsValue({ fullName: record.fullName, shortName: record.shortName });
+    setColorDraft(record.color || undefined);
+    const byDutyType = new Map((record.dutyRules || []).map((r) => [r.dutyType, r]));
+    setDutyRulesDraft(
+      DUTY_TYPE_OPTIONS.map((o) => {
+        const existing = byDutyType.get(o.value);
+        return existing
+          ? {
+              dutyType: o.value,
+              minCount: existing.minCount,
+              maxCount: existing.maxCount,
+              studentsPerInvigilator: existing.studentsPerInvigilator,
+            }
+          : { dutyType: o.value, minCount: 0, maxCount: null, studentsPerInvigilator: null };
+      })
+    );
     setModalOpen(true);
+  };
+
+  const updateDutyRule = (dutyType, field, value) => {
+    setDutyRulesDraft((prev) => prev.map((r) => (r.dutyType === dutyType ? { ...r, [field]: value } : r)));
   };
 
   const handleModalFinish = async (values) => {
     setModalLoading(true);
+    const payload = {
+      ...values,
+      color: colorDraft || undefined,
+      dutyRules: dutyRulesDraft.map((r) => ({
+        dutyType: r.dutyType,
+        minCount: r.minCount ?? 0,
+        maxCount: r.maxCount ?? undefined,
+        studentsPerInvigilator: r.studentsPerInvigilator ?? undefined,
+      })),
+    };
     try {
       if (editingRecord) {
-        const { data } = await updateExamType(editingRecord.id, values);
+        const { data } = await updateExamType(editingRecord.id, payload);
         setExamTypes((prev) => prev.map((e) => (e.id === data.id ? data : e)));
       } else {
-        const { data } = await createExamType(values);
+        const { data } = await createExamType(payload);
         setExamTypes((prev) => [...prev, data]);
       }
       form.resetFields();
@@ -140,6 +189,7 @@ export default function ExamTypesList() {
         { label: "S.No.",      accessor: (_, i) => i + 1 },
         { label: "Full Name",  accessor: (r) => r.fullName },
         { label: "Short Name", accessor: (r) => r.shortName || "" },
+        { label: "Color",      accessor: (r) => r.color || "" },
         { label: "Status",     accessor: (r) => (r.isActive ? "Active" : "Inactive") },
       ],
       "exam-types"
@@ -285,6 +335,7 @@ export default function ExamTypesList() {
         confirmLoading={modalLoading}
         destroyOnClose
         centered
+        width={640}
       >
         <Form
           form={form}
@@ -293,23 +344,103 @@ export default function ExamTypesList() {
           requiredMark={false}
           style={{ marginTop: 16 }}
         >
-          <Form.Item
-            name="fullName"
-            label="Full Name"
-            rules={[
-              { required: true, message: "Please enter the exam type's full name." },
-              { max: 150, message: "Maximum 150 characters." },
-            ]}
-          >
-            <Input placeholder="e.g. Pre Annual Sendup" />
-          </Form.Item>
+          <Space size={16} align="start" style={{ width: "100%" }}>
+            <Form.Item
+              name="fullName"
+              label="Full Name"
+              style={{ flex: 1 }}
+              rules={[
+                { required: true, message: "Please enter the exam type's full name." },
+                { max: 150, message: "Maximum 150 characters." },
+              ]}
+            >
+              <Input placeholder="e.g. Pre Annual Sendup" />
+            </Form.Item>
+
+            <Form.Item
+              name="shortName"
+              label="Short Name"
+              style={{ flex: 1 }}
+              rules={[{ max: 50, message: "Maximum 50 characters." }]}
+            >
+              <Input placeholder="e.g. PASU" />
+            </Form.Item>
+
+            <Form.Item label="Color">
+              <ColorPicker
+                value={colorDraft}
+                onChangeComplete={(c) => setColorDraft(c.toHexString())}
+                allowClear
+                onClear={() => setColorDraft(undefined)}
+                showText
+              />
+            </Form.Item>
+          </Space>
 
           <Form.Item
-            name="shortName"
-            label="Short Name"
-            rules={[{ max: 50, message: "Maximum 50 characters." }]}
+            label="Duty Type Rules"
+            tooltip="Maximums are enforced when assigning staff. Minimums are advisory only, shown in the calendar's staff list. Invigilator can either be a fixed count or auto-calculated from class strength."
+            style={{ marginBottom: 8 }}
           >
-            <Input placeholder="e.g. PASU" />
+            <Table
+              rowKey="dutyType"
+              size="small"
+              pagination={false}
+              dataSource={dutyRulesDraft}
+              columns={[
+                { title: "Duty", dataIndex: "dutyType", render: (v) => DUTY_TYPE_LABELS[v] },
+                {
+                  title: "Min",
+                  width: 80,
+                  render: (_, r) =>
+                    r.dutyType === "invigilator" && r.studentsPerInvigilator ? (
+                      <Text type="secondary">Auto</Text>
+                    ) : (
+                      <InputNumber
+                        size="small"
+                        min={0}
+                        value={r.minCount}
+                        onChange={(val) => updateDutyRule(r.dutyType, "minCount", val ?? 0)}
+                        style={{ width: "100%" }}
+                      />
+                    ),
+                },
+                {
+                  title: "Max",
+                  width: 90,
+                  render: (_, r) =>
+                    r.dutyType === "invigilator" && r.studentsPerInvigilator ? (
+                      <Text type="secondary">Auto</Text>
+                    ) : (
+                      <InputNumber
+                        size="small"
+                        min={0}
+                        placeholder="No limit"
+                        value={r.maxCount}
+                        onChange={(val) => updateDutyRule(r.dutyType, "maxCount", val)}
+                        style={{ width: "100%" }}
+                      />
+                    ),
+                },
+                {
+                  title: "Students / Invigilator",
+                  width: 150,
+                  render: (_, r) =>
+                    r.dutyType === "invigilator" ? (
+                      <InputNumber
+                        size="small"
+                        min={1}
+                        placeholder="e.g. 25"
+                        value={r.studentsPerInvigilator}
+                        onChange={(val) => updateDutyRule(r.dutyType, "studentsPerInvigilator", val)}
+                        style={{ width: "100%" }}
+                      />
+                    ) : (
+                      <Text type="secondary">—</Text>
+                    ),
+                },
+              ]}
+            />
           </Form.Item>
         </Form>
       </Modal>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { Modal, Form, Select, DatePicker, TimePicker, Row, Col } from "antd";
+import { Modal, Form, Select, DatePicker, TimePicker, Row, Col, Alert, Checkbox } from "antd";
 import dayjs from "dayjs";
 import { createEvent, updateEvent, updateEventTime, updateEventStatus } from "../../api/eventsApi";
 import { getCoursePapers } from "../../api/coursePapersApi";
@@ -33,7 +33,7 @@ const STATUS_OPTIONS = [
 // role split, plus status). Each section of the form only renders if the
 // user holds the matching permission — an editor with only one of the three
 // gets a form containing just that section.
-export default function EventFormModal({ open, editingRecord, initialDate, onCancel, onSuccess, onError }) {
+export default function EventFormModal({ open, editingRecord, initialDate, existingEvents = [], onCancel, onSuccess, onError }) {
   const { can } = useAuth();
   const [coursePapers, setCoursePapers] = useState([]);
   const [classes, setClasses] = useState([]);
@@ -42,12 +42,21 @@ export default function EventFormModal({ open, editingRecord, initialDate, onCan
 
   const selectedClassId = Form.useWatch("classId", form);
   const selectedCoursePaperId = Form.useWatch("coursePaperId", form);
+  const selectedExamTypeId = Form.useWatch("examTypeId", form);
+  const isRetakeChecked = Form.useWatch("isRetake", form);
 
-  const canEditTime = can("event.update-time");
-  const canEditMain = can("event.update");
-  const canEditStatus = !!editingRecord && can("event.update-status");
+  const canEditPastEvents = can("event.update-past");
+  // A normal event.update/-time/-status holder can only edit today's or
+  // future-dated events — editing a past event requires event.update-past.
+  const isPastEvent =
+    !!editingRecord?.eventDate && dayjs(editingRecord.eventDate).isBefore(dayjs().startOf("day"), "day");
+  const isLocked = isPastEvent && !canEditPastEvents;
+
+  const canEditTime = can("event.update-time") && !isLocked;
+  const canEditMain = can("event.update") && !isLocked;
+  const canEditStatus = !!editingRecord && can("event.update-status") && !isLocked;
   // Main fields (Class→Date) always show when adding; when editing, only
-  // if the user holds event.update.
+  // if the user holds event.update (and the event isn't past-locked).
   const showMainFields = !editingRecord || canEditMain;
 
   useEffect(() => {
@@ -114,30 +123,83 @@ export default function EventFormModal({ open, editingRecord, initialDate, onCan
   const classLabel = (c) =>
     `${c.program?.shortName || c.program?.fullName || ""} ${c.degreeLevel?.fullName || ""} ${c.session?.name || ""}`.replace(/\s+/g, " ").trim();
 
-  const classOptions = useMemo(
-    () => activeClasses.map((c) => ({ value: c.id, label: classLabel(c) })),
-    [activeClasses]
-  );
+  // In retake mode, every dropdown is filtered down to "does an original
+  // (non-retake) event already exist for this?" instead of the opposite —
+  // per [[project — retake]], existence checks for retakes only ever look
+  // at non-retake events (an existing retake never blocks/enables anything).
+  const classOptions = useMemo(() => {
+    const base = activeClasses;
+    const filtered = isRetakeChecked
+      ? base.filter((c) =>
+          existingEvents.some(
+            (e) => !e.isRetake && e.programId === c.programId && e.degreeLevelId === c.degreeLevelId && e.sessionId === c.sessionId
+          )
+        )
+      : base;
+    return filtered.map((c) => ({ value: c.id, label: classLabel(c) }));
+  }, [activeClasses, existingEvents, isRetakeChecked]);
 
   const coursePaperOptions = useMemo(() => {
     if (!selectedClass) return [];
-    return activeCoursePapers
-      .filter((c) => c.programId === selectedClass.programId && c.degreeLevelId === selectedClass.degreeLevelId)
-      .map((c) => ({ value: c.id, label: c.fullName }));
-  }, [activeCoursePapers, selectedClass]);
+    const base = activeCoursePapers.filter(
+      (c) => c.programId === selectedClass.programId && c.degreeLevelId === selectedClass.degreeLevelId
+    );
+    const filtered = isRetakeChecked
+      ? base.filter((c) =>
+          existingEvents.some((e) => !e.isRetake && e.coursePaperId === c.id && e.sessionId === selectedClass.sessionId)
+        )
+      : base;
+    return filtered.map((c) => ({ value: c.id, label: c.fullName }));
+  }, [activeCoursePapers, selectedClass, existingEvents, isRetakeChecked]);
 
   const selectedCoursePaper = useMemo(
     () => activeCoursePapers.find((c) => c.id === selectedCoursePaperId) ?? null,
     [activeCoursePapers, selectedCoursePaperId]
   );
 
+  // Exam types this course/paper already has a non-retake (original) event
+  // for, in the selected class's session — excluded in normal mode (an Event
+  // is unique per coursePaperId+examTypeId+sessionId+isRetake, so a new
+  // non-retake event would only ever collide with one of these), and exactly
+  // the set retake mode instead requires. Excludes the record being edited
+  // itself, so its own current exam type stays selectable there.
+  const originalExamTypeIds = useMemo(() => {
+    if (!selectedCoursePaperId || !selectedClass) return new Set();
+    return new Set(
+      existingEvents
+        .filter(
+          (e) =>
+            !e.isRetake &&
+            e.coursePaperId === selectedCoursePaperId &&
+            e.sessionId === selectedClass.sessionId &&
+            e.id !== editingRecord?.id
+        )
+        .map((e) => e.examTypeId)
+    );
+  }, [existingEvents, selectedCoursePaperId, selectedClass, editingRecord]);
+
   const examTypeOptions = useMemo(() => {
     if (!selectedCoursePaper) return [];
     return (selectedCoursePaper.examTypes || [])
       .map((link) => link.examType)
-      .filter((et) => et && et.isActive)
+      .filter((et) => et && et.isActive && (isRetakeChecked ? originalExamTypeIds.has(et.id) : !originalExamTypeIds.has(et.id)))
       .map((et) => ({ value: et.id, label: et.fullName }));
-  }, [selectedCoursePaper]);
+  }, [selectedCoursePaper, originalExamTypeIds, isRetakeChecked]);
+
+  // The original event being retaken, once class+course/paper+exam type are
+  // all selected in retake mode — its date is the floor for the retake's.
+  const originalEvent = useMemo(() => {
+    if (!isRetakeChecked || !selectedClass || !selectedCoursePaperId || !selectedExamTypeId) return null;
+    return (
+      existingEvents.find(
+        (e) =>
+          !e.isRetake &&
+          e.coursePaperId === selectedCoursePaperId &&
+          e.examTypeId === selectedExamTypeId &&
+          e.sessionId === selectedClass.sessionId
+      ) ?? null
+    );
+  }, [existingEvents, isRetakeChecked, selectedClass, selectedCoursePaperId, selectedExamTypeId]);
 
   const handleFinish = async (values) => {
     if (!selectedClass) {
@@ -174,6 +236,7 @@ export default function EventFormModal({ open, editingRecord, initialDate, onCan
           eventDate: values.eventDate ? values.eventDate.format("YYYY-MM-DD") : undefined,
           startTime: canEditTime && values.startTime ? values.startTime.format("HH:mm") : undefined,
           endTime: canEditTime && values.endTime ? values.endTime.format("HH:mm") : undefined,
+          isRetake: !!values.isRetake,
         }));
       }
       onSuccess(data, !!editingRecord);
@@ -193,11 +256,20 @@ export default function EventFormModal({ open, editingRecord, initialDate, onCan
       onCancel={onCancel}
       onOk={() => form.submit()}
       okText={editingRecord ? "Save" : "Add"}
+      okButtonProps={{ disabled: isLocked }}
       confirmLoading={modalLoading}
       destroyOnClose
       centered
       width={showMainFields ? 720 : 420}
     >
+      {isLocked && (
+        <Alert
+          type="warning"
+          showIcon
+          message="This event's date has already passed. You do not have permission to edit past events."
+          style={{ marginTop: 16 }}
+        />
+      )}
       <Form
         form={form}
         layout="vertical"
@@ -205,6 +277,29 @@ export default function EventFormModal({ open, editingRecord, initialDate, onCan
         requiredMark={false}
         style={{ marginTop: 16 }}
       >
+        {/* Retake mode only applies to Add — an existing event's retake
+            status isn't something you flip after the fact. */}
+        {!editingRecord && (
+          <Form.Item name="isRetake" valuePropName="checked" style={{ marginBottom: 8 }}>
+            <Checkbox
+              onChange={(e) => {
+                // The option sets for every downstream dropdown flip meaning
+                // entirely (unscheduled vs. already-scheduled) — nothing
+                // picked under the old mode is valid under the new one.
+                form.setFieldsValue({
+                  isRetake: e.target.checked,
+                  classId: undefined,
+                  coursePaperId: undefined,
+                  examTypeId: undefined,
+                  eventDate: undefined,
+                });
+              }}
+            >
+              Is this a retake?
+            </Checkbox>
+          </Form.Item>
+        )}
+
         {showMainFields && (
           <>
             <Row gutter={24}>
@@ -213,6 +308,11 @@ export default function EventFormModal({ open, editingRecord, initialDate, onCan
                   name="classId"
                   label="Class"
                   rules={[{ required: true, message: "Please select a class." }]}
+                  extra={
+                    isRetakeChecked && classOptions.length === 0
+                      ? "No class has an existing event yet — there's nothing to retake."
+                      : undefined
+                  }
                 >
                   <Select
                     className="assignment-select"
@@ -232,7 +332,13 @@ export default function EventFormModal({ open, editingRecord, initialDate, onCan
                   name="coursePaperId"
                   label="Course/Paper"
                   rules={[{ required: true, message: "Please select a course/paper." }]}
-                  extra={!selectedClass ? "Select a class first." : undefined}
+                  extra={
+                    !selectedClass
+                      ? "Select a class first."
+                      : isRetakeChecked && coursePaperOptions.length === 0
+                      ? "None of this class's course/papers have an existing event yet."
+                      : undefined
+                  }
                 >
                   <Select
                     className="assignment-select"
@@ -250,7 +356,16 @@ export default function EventFormModal({ open, editingRecord, initialDate, onCan
                   name="examTypeId"
                   label="Exam Type"
                   rules={[{ required: true, message: "Please select an exam type." }]}
-                  extra={!selectedCoursePaperId ? "Select a course/paper first." : undefined}
+                  extra={
+                    !selectedCoursePaperId
+                      ? "Select a course/paper first."
+                      : examTypeOptions.length === 0 && isRetakeChecked
+                      ? "This course/paper has no exam type with an existing event to retake."
+                      : examTypeOptions.length === 0 &&
+                        (selectedCoursePaper?.examTypes || []).some((l) => l.examType?.isActive)
+                      ? "All exam types for this course/paper already have an event in this session."
+                      : undefined
+                  }
                 >
                   <Select
                     className="assignment-select"
@@ -266,8 +381,27 @@ export default function EventFormModal({ open, editingRecord, initialDate, onCan
 
             <Row gutter={24}>
               <Col span={24}>
-                <Form.Item name="eventDate" label="Date">
-                  <DatePicker className="assignment-select" style={{ width: "100%" }} format="YYYY-MM-DD" />
+                <Form.Item
+                  name="eventDate"
+                  label="Date"
+                  extra={
+                    isRetakeChecked && originalEvent?.eventDate
+                      ? `Must be after the original event's date: ${dayjs(originalEvent.eventDate).format("DD MMM YYYY")}.`
+                      : isRetakeChecked && selectedExamTypeId && !originalEvent?.eventDate
+                      ? "The original event has no date set yet — set one there first."
+                      : undefined
+                  }
+                >
+                  <DatePicker
+                    className="assignment-select"
+                    style={{ width: "100%" }}
+                    format="YYYY-MM-DD"
+                    disabledDate={
+                      isRetakeChecked && originalEvent?.eventDate
+                        ? (date) => !date.isAfter(dayjs(originalEvent.eventDate), "day")
+                        : undefined
+                    }
+                  />
                 </Form.Item>
               </Col>
             </Row>

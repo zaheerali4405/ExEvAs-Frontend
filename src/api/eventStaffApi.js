@@ -7,3 +7,5 @@ export const updateEventStaff = (eventId, currentEmployeeId, employeeId, dutyTyp
   axiosClient.patch(`/event-staff/event/${eventId}/employee/${currentEmployeeId}`, { employeeId, dutyType });
 export const unassignEventStaff = (eventId, employeeId) =>
   axiosClient.delete(`/event-staff/event/${eventId}/employee/${employeeId}`);
+export const getEventStaffDutyLimits = (eventId) =>
+  axiosClient.get('/event-staff/duty-limits', { params: { eventId } });

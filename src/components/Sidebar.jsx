@@ -75,6 +75,7 @@ const navItems = [
       { key: '/equipment',          icon: <ToolOutlined />,        label: 'Equipment',          permission: 'equipment.read-all' },
       { key: '/events',             icon: <CalendarOutlined />,    label: 'Events',             permission: ['event.read-all', 'event.read-departmental'] },
       { key: '/moderation-meetings', icon: <TeamOutlined />,       label: 'Moderation Meetings', permission: ['moderation-meeting.read-all', 'moderation-meeting.read-departmental'] },
+      { key: '/ospe-osce',          icon: <TeamOutlined />,        label: 'OSPE/OSCE',           permission: ['ospe-osce.read-all', 'ospe-osce.read-departmental'] },
       { key: '/notifications',     icon: <NotificationOutlined />, label: 'Notifications',       permission: 'notification.read-all' },
     ],
   },

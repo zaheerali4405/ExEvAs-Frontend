@@ -7,3 +7,5 @@ export const updateEventEquipment = (eventId, currentEquipmentId, equipmentId, q
   axiosClient.patch(`/event-equipment/event/${eventId}/equipment/${currentEquipmentId}`, { equipmentId, quantity });
 export const unassignEventEquipment = (eventId, equipmentId) =>
   axiosClient.delete(`/event-equipment/event/${eventId}/equipment/${equipmentId}`);
+export const getEventEquipmentAvailability = (equipmentId, eventId) =>
+  axiosClient.get('/event-equipment/availability', { params: { equipmentId, eventId } });
