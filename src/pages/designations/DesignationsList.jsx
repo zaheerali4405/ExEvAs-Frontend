@@ -9,6 +9,7 @@ import DashboardLayout from "../../layouts/DashboardLayout";
 import PageCard from "../../components/PageCard";
 import { getDesignations, createDesignation, updateDesignation, setDesignationStatus } from "../../api/designationsApi";
 import { exportToExcel } from "../../utils/exportExcel";
+import { infoTip } from "../../utils/formTooltip";
 import { useAuth } from "../../context/AuthContext";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
@@ -16,11 +17,13 @@ const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 const searchableColumns = [
   { value: "name",        label: "Name" },
   { value: "description", label: "Description" },
+  { value: "reportsTo",   label: "Reports To" },
   { value: "status",      label: "Status" },
 ];
 
 const getFieldValue = (item, key) => {
   if (key === "status") return item.isActive ? "Active" : "Inactive";
+  if (key === "reportsTo") return item.parent?.name ?? "";
   return item[key] ?? "";
 };
 
@@ -113,18 +116,27 @@ export default function DesignationsList() {
 
   const openEditModal = (record) => {
     setEditingRecord(record);
-    form.setFieldsValue({ name: record.name, description: record.description });
+    form.setFieldsValue({
+      name: record.name,
+      description: record.description,
+      parentId: record.parentId ?? undefined,
+    });
     setModalOpen(true);
   };
 
   const handleModalFinish = async (values) => {
     setModalLoading(true);
+    // A cleared selection is sent as null so an edit can move a designation
+    // back to the top level, rather than being dropped from the payload.
+    const payload = { ...values, parentId: values.parentId ?? null };
     try {
       if (editingRecord) {
-        const { data } = await updateDesignation(editingRecord.id, values);
-        setDesignations((prev) => prev.map((d) => (d.id === data.id ? data : d)));
+        await updateDesignation(editingRecord.id, payload);
+        // Reloaded rather than patched in place: renaming a designation
+        // changes the Reports To shown on every row beneath it.
+        await fetchDesignations();
       } else {
-        const { data } = await createDesignation(values);
+        const { data } = await createDesignation(payload);
         setDesignations((prev) => [...prev, data]);
       }
       form.resetFields();
@@ -143,11 +155,39 @@ export default function DesignationsList() {
         { label: "S.No.",       accessor: (_, i) => i + 1 },
         { label: "Name",        accessor: (r) => r.name },
         { label: "Description", accessor: (r) => r.description || "" },
+        { label: "Reports To",  accessor: (r) => r.parent?.name || "" },
         { label: "Status",      accessor: (r) => (r.isActive ? "Active" : "Inactive") },
       ],
       "designations"
     );
   };
+
+  // Everything a designation could report to. When editing, the designation
+  // itself and every designation beneath it are left out: picking one of
+  // those would close the chain into a loop. The backend refuses it too;
+  // this just keeps the impossible choices off the list.
+  const parentOptions = useMemo(() => {
+    const excluded = new Set();
+    if (editingRecord) {
+      const childrenOf = new Map();
+      designations.forEach((d) => {
+        if (d.parentId == null) return;
+        if (!childrenOf.has(d.parentId)) childrenOf.set(d.parentId, []);
+        childrenOf.get(d.parentId).push(d.id);
+      });
+      const stack = [editingRecord.id];
+      while (stack.length) {
+        const id = stack.pop();
+        if (excluded.has(id)) continue;
+        excluded.add(id);
+        (childrenOf.get(id) || []).forEach((childId) => stack.push(childId));
+      }
+    }
+    return designations
+      .filter((d) => d.isActive && !excluded.has(d.id))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((d) => ({ value: d.id, label: d.name }));
+  }, [designations, editingRecord]);
 
   const startEntry = filtered.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
   const endEntry = Math.min(currentPage * pageSize, filtered.length);
@@ -168,6 +208,12 @@ export default function DesignationsList() {
       dataIndex: "description",
       sorter: (a, b) => (a.description ?? "").localeCompare(b.description ?? ""),
       render: (val) => val || "—",
+    },
+    {
+      title: "Reports To",
+      width: 180,
+      sorter: (a, b) => (a.parent?.name ?? "").localeCompare(b.parent?.name ?? ""),
+      render: (_, r) => r.parent?.name ?? "—",
     },
     {
       title: "Status",
@@ -300,7 +346,7 @@ export default function DesignationsList() {
         onOk={() => form.submit()}
         okText={editingRecord ? "Save" : "Add"}
         confirmLoading={modalLoading}
-        destroyOnClose
+        destroyOnHidden
         centered
       >
         <Form
@@ -322,6 +368,19 @@ export default function DesignationsList() {
           </Form.Item>
           <Form.Item name="description" label="Description">
             <Input placeholder="Brief description (optional)" />
+          </Form.Item>
+          <Form.Item
+            name="parentId"
+            label="Reports To"
+            tooltip={infoTip("The designation this one answers to. Leave empty for a top-level designation.")}
+          >
+            <Select
+              placeholder="No one (top-level designation)"
+              options={parentOptions}
+              allowClear
+              showSearch
+              filterOption={(input, option) => option.label.toLowerCase().includes(input.toLowerCase())}
+            />
           </Form.Item>
         </Form>
       </Modal>

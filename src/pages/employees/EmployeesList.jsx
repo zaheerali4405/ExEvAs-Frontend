@@ -414,7 +414,7 @@ export default function EmployeesList() {
         onOk={() => form.submit()}
         okText={editingRecord ? "Save" : "Add"}
         confirmLoading={modalLoading}
-        destroyOnClose
+        destroyOnHidden
         centered
         width={640}
       >

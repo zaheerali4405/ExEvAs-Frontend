@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import {
   Table, Input, Select, Button, Tag, Alert, Space, Tooltip,
-  Pagination, Modal, Form, Descriptions, Switch,
+  Pagination, Modal, Form, Descriptions, Switch, ColorPicker, Row, Col,
 } from "antd";
 import { EditOutlined, DownloadOutlined, EyeOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
@@ -79,6 +79,7 @@ export default function ProgramsList() {
   const [modalLoading, setModalLoading] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
   const [viewRecord, setViewRecord] = useState(null);
+  const [colorDraft, setColorDraft] = useState(undefined);
   const [form] = Form.useForm();
 
   useEffect(() => {
@@ -149,6 +150,7 @@ export default function ProgramsList() {
     setEditingRecord(null);
     form.resetFields();
     form.setFieldsValue({ autoScheduleModerationMeetings: true });
+    setColorDraft(undefined);
     setModalOpen(true);
   };
 
@@ -165,17 +167,19 @@ export default function ProgramsList() {
       notes:          record.notes,
       autoScheduleModerationMeetings: record.autoScheduleModerationMeetings,
     });
+    setColorDraft(record.color || undefined);
     setModalOpen(true);
   };
 
   const handleModalFinish = async (values) => {
     setModalLoading(true);
+    const payload = { ...values, color: colorDraft || undefined };
     try {
       if (editingRecord) {
-        const { data } = await updateProgram(editingRecord.id, values);
+        const { data } = await updateProgram(editingRecord.id, payload);
         setPrograms((prev) => prev.map((p) => (p.id === data.id ? data : p)));
       } else {
-        const { data } = await createProgram(values);
+        const { data } = await createProgram(payload);
         setPrograms((prev) => [...prev, data]);
       }
       form.resetFields();
@@ -195,6 +199,7 @@ export default function ProgramsList() {
         { label: "Full Name",       accessor: (r) => r.fullName },
         { label: "Short Name",      accessor: (r) => r.shortName || "" },
         { label: "Code",            accessor: (r) => r.code },
+        { label: "Color",           accessor: (r) => r.color || "" },
         { label: "Institute",       accessor: (r) => instituteLabel(r.institute) },
         { label: "Term System",     accessor: (r) => TERM_SYSTEM_OPTIONS.find((t) => t.value === r.termSystem)?.label || r.termSystem },
         { label: "Affiliated With", accessor: (r) => r.affiliatedWith },
@@ -219,6 +224,23 @@ export default function ProgramsList() {
       title: "Full Name",
       dataIndex: "fullName",
       sorter: (a, b) => a.fullName.localeCompare(b.fullName),
+      render: (fullName, record) => (
+        <Space size={8}>
+          {record.color && (
+            <span
+              style={{
+                display: "inline-block",
+                width: 12,
+                height: 12,
+                borderRadius: 4,
+                background: record.color,
+                flexShrink: 0,
+              }}
+            />
+          )}
+          {fullName}
+        </Space>
+      ),
     },
     {
       title: "Short Name",
@@ -366,9 +388,9 @@ export default function ProgramsList() {
         onOk={() => form.submit()}
         okText={editingRecord ? "Save" : "Add"}
         confirmLoading={modalLoading}
-        destroyOnClose
+        destroyOnHidden
         centered
-        width={560}
+        width={680}
       >
         <Form
           form={form}
@@ -377,75 +399,105 @@ export default function ProgramsList() {
           requiredMark={false}
           style={{ marginTop: 16 }}
         >
-          <Form.Item
-            name="fullName"
-            label="Full Name"
-            rules={[
-              { required: true, message: "Please enter the program's full name." },
-              { max: 200, message: "Maximum 200 characters." },
-            ]}
-          >
-            <Input placeholder="e.g. Bachelor of Medicine, Bachelor of Surgery" />
-          </Form.Item>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="fullName"
+                label="Full Name"
+                rules={[
+                  { required: true, message: "Please enter the program's full name." },
+                  { max: 200, message: "Maximum 200 characters." },
+                ]}
+              >
+                <Input placeholder="e.g. Bachelor of Medicine, Bachelor of Surgery" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="shortName"
+                label="Short Name"
+                rules={[{ max: 50, message: "Maximum 50 characters." }]}
+              >
+                <Input placeholder="e.g. MBBS" />
+              </Form.Item>
+            </Col>
+          </Row>
 
-          <Form.Item
-            name="shortName"
-            label="Short Name"
-            rules={[{ max: 50, message: "Maximum 50 characters." }]}
-          >
-            <Input placeholder="e.g. MBBS" />
-          </Form.Item>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="code"
+                label="Code"
+                extra="Even shorter than Short Name — used as the roll-number prefix for students."
+                rules={[
+                  { required: true, message: "Please enter a code." },
+                  { max: 10, message: "Maximum 10 characters." },
+                ]}
+              >
+                <Input placeholder="e.g. M" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label="Color">
+                <ColorPicker
+                  value={colorDraft}
+                  onChangeComplete={(c) => setColorDraft(c.toHexString())}
+                  allowClear
+                  onClear={() => setColorDraft(undefined)}
+                  showText
+                />
+              </Form.Item>
+            </Col>
+          </Row>
 
-          <Form.Item
-            name="code"
-            label="Code"
-            extra="Even shorter than Short Name — used as the roll-number prefix for students."
-            rules={[
-              { required: true, message: "Please enter a code." },
-              { max: 10, message: "Maximum 10 characters." },
-            ]}
-          >
-            <Input placeholder="e.g. M" />
-          </Form.Item>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="instituteId"
+                label="Institute"
+                rules={[{ required: true, message: "Please select an institute." }]}
+              >
+                <Select
+                  placeholder="Select institute"
+                  options={instituteOptions}
+                  showSearch
+                  filterOption={(input, option) =>
+                    option.label.toLowerCase().includes(input.toLowerCase())
+                  }
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="termSystem"
+                label="Term System"
+                rules={[{ required: true, message: "Please select a term system." }]}
+              >
+                <Select placeholder="Select term system" options={TERM_SYSTEM_OPTIONS} />
+              </Form.Item>
+            </Col>
+          </Row>
 
-          <Form.Item
-            name="instituteId"
-            label="Institute"
-            rules={[{ required: true, message: "Please select an institute." }]}
-          >
-            <Select
-              placeholder="Select institute"
-              options={instituteOptions}
-              showSearch
-              filterOption={(input, option) =>
-                option.label.toLowerCase().includes(input.toLowerCase())
-              }
-            />
-          </Form.Item>
-
-          <Form.Item
-            name="termSystem"
-            label="Term System"
-            rules={[{ required: true, message: "Please select a term system." }]}
-          >
-            <Select placeholder="Select term system" options={TERM_SYSTEM_OPTIONS} />
-          </Form.Item>
-
-          <Form.Item
-            name="affiliatedWith"
-            label="Affiliated With"
-            rules={[{ required: true, message: "Please select an affiliating body." }]}
-          >
-            <Select placeholder="Select affiliating body" options={AFFILIATED_WITH_OPTIONS} />
-          </Form.Item>
-
-          <Form.Item
-            name="type"
-            label="Type"
-            rules={[{ required: true, message: "Please select a program type." }]}
-          >
-            <Select placeholder="Select program type" options={PROGRAM_TYPE_OPTIONS} />
-          </Form.Item>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                name="affiliatedWith"
+                label="Affiliated With"
+                rules={[{ required: true, message: "Please select an affiliating body." }]}
+              >
+                <Select placeholder="Select affiliating body" options={AFFILIATED_WITH_OPTIONS} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="type"
+                label="Type"
+                rules={[{ required: true, message: "Please select a program type." }]}
+              >
+                <Select placeholder="Select program type" options={PROGRAM_TYPE_OPTIONS} />
+              </Form.Item>
+            </Col>
+          </Row>
 
           <Form.Item
             name="autoScheduleModerationMeetings"
@@ -481,6 +533,14 @@ export default function ProgramsList() {
             <Descriptions.Item label="Full Name">{viewRecord.fullName}</Descriptions.Item>
             <Descriptions.Item label="Short Name">{viewRecord.shortName || "—"}</Descriptions.Item>
             <Descriptions.Item label="Code">{viewRecord.code}</Descriptions.Item>
+            <Descriptions.Item label="Color">
+              {viewRecord.color ? (
+                <Space size={8}>
+                  <span style={{ display: "inline-block", width: 14, height: 14, borderRadius: 4, background: viewRecord.color }} />
+                  {viewRecord.color}
+                </Space>
+              ) : "—"}
+            </Descriptions.Item>
             <Descriptions.Item label="Institute">{instituteLabel(viewRecord.institute) || "—"}</Descriptions.Item>
             <Descriptions.Item label="Term System">
               {TERM_SYSTEM_OPTIONS.find((t) => t.value === viewRecord.termSystem)?.label ?? viewRecord.termSystem}

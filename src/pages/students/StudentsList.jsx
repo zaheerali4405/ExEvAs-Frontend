@@ -16,8 +16,9 @@ import {
   Col,
   Typography,
   Divider,
+  Descriptions,
 } from "antd";
-import { EditOutlined, DownloadOutlined } from "@ant-design/icons";
+import { EditOutlined, EyeOutlined, DownloadOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import PageCard from "../../components/PageCard";
@@ -95,6 +96,7 @@ export default function StudentsList() {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
+  const [viewRecord, setViewRecord] = useState(null);
   const [form] = Form.useForm();
   const selectedSessionId = Form.useWatch("sessionId", form);
   const selectedProgramId = Form.useWatch("programId", form);
@@ -218,6 +220,10 @@ export default function StudentsList() {
     });
   };
 
+  const openViewModal = (record) => {
+    setViewRecord(record);
+  };
+
   const openAddModal = () => {
     setEditingRecord(null);
     form.resetFields();
@@ -228,7 +234,10 @@ export default function StudentsList() {
     setEditingRecord(record);
     const prefix = classPrefix(record.class);
     form.setFieldsValue({
-      sessionId: record.sessionId,
+      // Student no longer carries its own sessionId — the Session field
+      // here is purely a UI cascade helper to (re-)resolve classId, so it's
+      // seeded from the linked class's own session instead.
+      sessionId: record.class?.session?.id,
       programId: record.class?.program?.id,
       degreeLevelId: record.class?.degreeLevel?.id,
       classId: record.classId,
@@ -256,8 +265,19 @@ export default function StudentsList() {
     }
     setModalLoading(true);
     try {
-      const { rollNoSuffix, programId, degreeLevelId, ...rest } = values;
+      // sessionId/programId/degreeLevelId only exist to resolve classId in
+      // this form's own cascade — Student itself has no sessionId of its
+      // own, and programId/degreeLevelId are reached through classId.
+      const { rollNoSuffix, sessionId, programId, degreeLevelId, ...rest } = values;
       const selectedClass = classes.find((c) => c.id === values.classId);
+      // registrationNo/gender/cnic/phoneNo/postalAddress are optional now —
+      // a field the user focused then left blank comes through as "" (not
+      // undefined), which would otherwise still trip e.g. the CNIC format
+      // check server-side. Blank out to undefined so "left empty" really
+      // means "not provided".
+      ["registrationNo", "gender", "cnic", "phoneNo", "postalAddress"].forEach((key) => {
+        if (rest[key] === "") rest[key] = undefined;
+      });
       const payload = {
         ...rest,
         rollNo: `${classPrefix(selectedClass)}${rollNoSuffix || ""}`,
@@ -294,10 +314,10 @@ export default function StudentsList() {
         { label: "Username", accessor: (r) => r.user?.username || "" },
         { label: "Email", accessor: (r) => r.user?.email || "" },
         { label: "Roll No.", accessor: (r) => r.rollNo },
-        { label: "Registration No.", accessor: (r) => r.registrationNo },
-        { label: "Gender", accessor: (r) => r.gender },
-        { label: "CNIC", accessor: (r) => r.cnic },
-        { label: "Phone", accessor: (r) => r.phoneNo },
+        { label: "Registration No.", accessor: (r) => r.registrationNo || "" },
+        { label: "Gender", accessor: (r) => r.gender || "" },
+        { label: "CNIC", accessor: (r) => r.cnic || "" },
+        { label: "Phone", accessor: (r) => r.phoneNo || "" },
         { label: "Class", accessor: (r) => classLabel(r.class) },
         {
           label: "Status",
@@ -326,12 +346,7 @@ export default function StudentsList() {
     {
       title: "Roll No.",
       dataIndex: "rollNo",
-      width: 120,
-    },
-    {
-      title: "Registration No.",
-      dataIndex: "registrationNo",
-      width: 150,
+      width: 170,
     },
     {
       title: "Class",
@@ -361,10 +376,17 @@ export default function StudentsList() {
     },
     {
       title: "Actions",
-      width: 90,
+      width: 120,
       align: "center",
       render: (_, record) => (
         <Space>
+          <Tooltip title="View">
+            <Button
+              size="small"
+              icon={<EyeOutlined />}
+              onClick={() => openViewModal(record)}
+            />
+          </Tooltip>
           {can("student.update") && (
             <Tooltip title="Edit">
               <Button
@@ -493,7 +515,7 @@ export default function StudentsList() {
         onOk={() => form.submit()}
         okText={editingRecord ? "Save" : "Add"}
         confirmLoading={modalLoading}
-        destroyOnClose
+        destroyOnHidden
         centered
         width={900}
       >
@@ -594,9 +616,9 @@ export default function StudentsList() {
               <Form.Item
                 name="registrationNo"
                 label="Registration No."
-                rules={[{ required: true, message: "Required." }, { max: 50 }]}
+                rules={[{ max: 50 }]}
               >
-                <Input placeholder="Registration number" />
+                <Input placeholder="Registration number (optional for now)" />
               </Form.Item>
             </Col>
             <Col span={8}>
@@ -617,20 +639,12 @@ export default function StudentsList() {
               </Form.Item>
             </Col>
             <Col span={8}>
-              <Form.Item
-                name="gender"
-                label="Gender"
-                rules={[{ required: true, message: "Required." }]}
-              >
-                <Select placeholder="Select gender" options={GENDER_OPTIONS} />
+              <Form.Item name="gender" label="Gender (optional for now)">
+                <Select placeholder="Select gender" options={GENDER_OPTIONS} allowClear />
               </Form.Item>
             </Col>
             <Col span={8}>
-              <Form.Item
-                name="dateOfBirth"
-                label="Date of Birth"
-                rules={[{ required: true, message: "Required." }]}
-              >
+              <Form.Item name="dateOfBirth" label="Date of Birth (optional for now)">
                 <DatePicker style={{ width: "100%" }} format="YYYY-MM-DD" />
               </Form.Item>
             </Col>
@@ -640,9 +654,8 @@ export default function StudentsList() {
             <Col span={8}>
               <Form.Item
                 name="cnic"
-                label="CNIC"
+                label="CNIC (optional for now)"
                 rules={[
-                  { required: true, message: "Required." },
                   {
                     pattern: /^\d{5}-\d{7}-\d{1}$/,
                     message: "Format: XXXXX-XXXXXXX-X",
@@ -653,20 +666,12 @@ export default function StudentsList() {
               </Form.Item>
             </Col>
             <Col span={8}>
-              <Form.Item
-                name="phoneNo"
-                label="Phone No."
-                rules={[{ required: true, message: "Required." }]}
-              >
+              <Form.Item name="phoneNo" label="Phone No. (optional for now)">
                 <Input placeholder="Phone number" />
               </Form.Item>
             </Col>
             <Col span={8}>
-              <Form.Item
-                name="postalAddress"
-                label="Postal Address"
-                rules={[{ required: true, message: "Required." }]}
-              >
+              <Form.Item name="postalAddress" label="Postal Address (optional for now)">
                 <Input placeholder="Postal address" />
               </Form.Item>
             </Col>
@@ -704,6 +709,49 @@ export default function StudentsList() {
             </>
           )}
         </Form>
+      </Modal>
+
+      {/* View Details Modal */}
+      <Modal
+        title="Student Details"
+        open={!!viewRecord}
+        onCancel={() => setViewRecord(null)}
+        footer={null}
+        centered
+        width={600}
+      >
+        {viewRecord && (
+          <Descriptions
+            bordered
+            column={1}
+            size="small"
+            style={{ marginTop: 16 }}
+            labelStyle={{ fontWeight: 600, width: 160 }}
+          >
+            <Descriptions.Item label="Full Name">
+              {viewRecord.firstName}{viewRecord.lastName ? ` ${viewRecord.lastName}` : ""}
+            </Descriptions.Item>
+            <Descriptions.Item label="Username">{viewRecord.user?.username || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Email">{viewRecord.user?.email || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Roll No.">{viewRecord.rollNo}</Descriptions.Item>
+            <Descriptions.Item label="Registration No.">{viewRecord.registrationNo || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Class">{classLabel(viewRecord.class) || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Gender">
+              {GENDER_OPTIONS.find((g) => g.value === viewRecord.gender)?.label || "—"}
+            </Descriptions.Item>
+            <Descriptions.Item label="Date of Birth">
+              {viewRecord.dateOfBirth ? dayjs(viewRecord.dateOfBirth).format("DD MMM YYYY") : "—"}
+            </Descriptions.Item>
+            <Descriptions.Item label="CNIC">{viewRecord.cnic || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Phone No.">{viewRecord.phoneNo || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Postal Address">{viewRecord.postalAddress || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Status">
+              <Tag color={viewRecord.isActive ? "success" : "default"}>
+                {viewRecord.isActive ? "Active" : "Inactive"}
+              </Tag>
+            </Descriptions.Item>
+          </Descriptions>
+        )}
       </Modal>
     </DashboardLayout>
   );

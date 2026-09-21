@@ -194,7 +194,7 @@ export default function ModerationMeetingFormModal({ open, editingRecord, initia
       onOk={() => form.submit()}
       okText={editingRecord ? "Save" : "Add"}
       confirmLoading={modalLoading}
-      destroyOnClose
+      destroyOnHidden
       centered
       width={showMainFields ? 720 : 420}
     >

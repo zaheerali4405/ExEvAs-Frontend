@@ -301,7 +301,7 @@ export default function DegreeLevelsList() {
         onOk={() => form.submit()}
         okText={editingRecord ? "Save" : "Add"}
         confirmLoading={modalLoading}
-        destroyOnClose
+        destroyOnHidden
         centered
         width={560}
       >

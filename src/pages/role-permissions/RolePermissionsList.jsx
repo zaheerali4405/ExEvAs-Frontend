@@ -60,12 +60,13 @@ const RESOURCE_LABELS = {
   "subject":            "Subject",
   "department":         "Department",
   "exam-type":          "Exam Type",
+  "exam-scope":         "Exam Scope",
+  "exam-category":     "Exam Category",
   "employee":           "Employee",
   "student":            "Student",
   "venue":              "Venue",
   "equipment":          "Equipment",
   "moderation-meeting": "Moderation Meeting",
-  "ospe-osce":          "OSPE/OSCE",
   "event":              "Event",
   "event-venue":        "Event Venue",
   "event-equipment":    "Event Equipment",
@@ -93,7 +94,7 @@ const RESOURCE_GROUPS = [
     key: "group:academic-structure",
     label: "Academic Structure",
     resources: [
-      "institute", "program", "session", "degree-level", "class", "exam-type", 
+      "institute", "program", "session", "degree-level", "class", "exam-type", "exam-scope", "exam-category",
       "course-paper", "subject", "department", "employee", "student"
     ],
   },

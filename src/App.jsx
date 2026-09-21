@@ -25,7 +25,6 @@ import EventsList from './pages/events/EventsList';
 import EventResourcesPage from './pages/events/EventResourcesPage';
 import DatesheetPage from './pages/timetable/DatesheetPage';
 import ModerationMeetingsList from './pages/moderation-meetings/ModerationMeetingsList';
-import OspeOsceList from './pages/ospe-osce/OspeOsceList';
 import ModerationMeetingCalendarView from './pages/moderation-meetings/ModerationMeetingCalendarView';
 import SystemSettingsPage from './pages/system-settings/SystemSettingsPage';
 import InstitutesList from './pages/institutes/InstitutesList';
@@ -38,6 +37,10 @@ import SessionsList from './pages/sessions/SessionsList';
 import DegreeLevelsList from './pages/degree-levels/DegreeLevelsList';
 import ClassesList from './pages/classes/ClassesList';
 import ExamTypesList from './pages/exam-types/ExamTypesList';
+import ExamScopesList from './pages/exam-scopes/ExamScopesList';
+import ExamCategoriesList from './pages/exam-categories/ExamCategoriesList';
+import ExamCategoryColorsList from './pages/exam-category-colors/ExamCategoryColorsList';
+import ExamCategoryRulesList from './pages/exam-category-rules/ExamCategoryRulesList';
 import CoursePapersList from './pages/course-papers/CoursePapersList';
 import NotificationsList from './pages/notifications/NotificationsList';
 import MyNotificationsPage from './pages/notifications/MyNotificationsPage';
@@ -206,14 +209,6 @@ function App() {
             }
           />
           <Route
-            path="/ospe-osce"
-            element={
-              <ProtectedRoute permission={["ospe-osce.read-all", "ospe-osce.read-departmental"]}>
-                <OspeOsceList />
-              </ProtectedRoute>
-            }
-          />
-          <Route
             path="/institutes"
             element={
               <ProtectedRoute permission="institute.read-all">
@@ -290,6 +285,38 @@ function App() {
             element={
               <ProtectedRoute permission="exam-type.read-all">
                 <ExamTypesList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/exam-scopes"
+            element={
+              <ProtectedRoute permission="exam-scope.read-all">
+                <ExamScopesList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/exam-categories"
+            element={
+              <ProtectedRoute permission="exam-category.read-all">
+                <ExamCategoriesList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/exam-category-colors"
+            element={
+              <ProtectedRoute permission="exam-category.read-all">
+                <ExamCategoryColorsList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/exam-category-rules"
+            element={
+              <ProtectedRoute permission="exam-category.read-all">
+                <ExamCategoryRulesList />
               </ProtectedRoute>
             }
           />

@@ -12,6 +12,7 @@ import { getPrograms } from "../../api/programsApi";
 import { getDegreeLevels } from "../../api/degreeLevelsApi";
 import { getSubjects } from "../../api/subjectsApi";
 import { getExamTypes } from "../../api/examTypesApi";
+import { getExamCategories } from "../../api/examCategoriesApi";
 import { getInstitutes } from "../../api/institutesApi";
 import { exportToExcel } from "../../utils/exportExcel";
 import { useAuth } from "../../context/AuthContext";
@@ -21,14 +22,21 @@ const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 const searchableColumns = [
   { value: "fullName",  label: "Full Name" },
   { value: "shortName", label: "Short Name" },
+  { value: "type",      label: "Type" },
   { value: "status",    label: "Status" },
 ];
+
+// An integrated course/paper examines several subjects in one paper; a
+// non-integrated one covers exactly one.
+const integrationLabel = (cp) => (cp.isIntegrated ? "Integrated" : "Non-Integrated");
 
 const shortLabel = (entity) => (entity ? entity.shortName || entity.fullName : "");
 const subjectNames = (coursePaper) => (coursePaper.subjects || []).map((s) => shortLabel(s.subject)).filter(Boolean);
 const examTypeNames = (coursePaper) => (coursePaper.examTypes || []).map((e) => shortLabel(e.examType)).filter(Boolean);
 const subjectFullNames = (coursePaper) => (coursePaper.subjects || []).map((s) => s.subject?.fullName).filter(Boolean);
 const examTypeFullNames = (coursePaper) => (coursePaper.examTypes || []).map((e) => e.examType?.fullName).filter(Boolean);
+const examCategoryNames = (coursePaper) => (coursePaper.examCategories || []).map((e) => shortLabel(e.examCategory)).filter(Boolean);
+const examCategoryFullNames = (coursePaper) => (coursePaper.examCategories || []).map((e) => e.examCategory?.name).filter(Boolean);
 
 // The list page's Full Name/Short Name columns are composites, not the raw
 // CoursePaper fields — e.g. "MBBS 1st Year Paper-I" / "M-Y1-P-I".
@@ -42,6 +50,7 @@ const userLabel = (user) => (user ? user.username || user.email : "—");
 
 const getFieldValue = (item, key) => {
   if (key === "status")    return item.isActive ? "Active" : "Inactive";
+  if (key === "type")      return integrationLabel(item);
   if (key === "fullName")  return composedFullName(item);
   if (key === "shortName") return composedShortName(item);
   return item[key] ?? "";
@@ -65,6 +74,7 @@ export default function CoursePapersList() {
   const [degreeLevels, setDegreeLevels] = useState([]);
   const [subjects, setSubjects] = useState([]);
   const [examTypes, setExamTypes] = useState([]);
+  const [examCategories, setExamCategories] = useState([]);
   const [institutes, setInstitutes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -78,8 +88,10 @@ export default function CoursePapersList() {
   const [viewRecord, setViewRecord] = useState(null);
   const [form] = Form.useForm();
   const selectedProgramId = Form.useWatch("programId", form);
+  const isIntegrated = Form.useWatch("isIntegrated", form);
   const selectedSubjectIds = Form.useWatch("subjectIds", form) || [];
   const selectedExamTypeIds = Form.useWatch("examTypeIds", form) || [];
+  const selectedExamCategoryIds = Form.useWatch("examCategoryIds", form) || [];
 
   useEffect(() => {
     (async () => {
@@ -127,6 +139,15 @@ export default function CoursePapersList() {
           setExamTypes(data);
         } catch {
           // Non-fatal: the exam types dropdown just stays empty.
+        }
+      }
+
+      if (can("exam-category.read-all")) {
+        try {
+          const { data } = await getExamCategories();
+          setExamCategories(data);
+        } catch {
+          // Non-fatal: the exam categories dropdown just stays empty.
         }
       }
 
@@ -184,6 +205,7 @@ export default function CoursePapersList() {
   const openAddModal = () => {
     setEditingRecord(null);
     form.resetFields();
+    form.setFieldsValue({ isIntegrated: false });
     setModalOpen(true);
   };
 
@@ -194,8 +216,10 @@ export default function CoursePapersList() {
       shortName:     record.shortName,
       programId:     record.programId,
       degreeLevelId: record.degreeLevelId,
+      isIntegrated:  !!record.isIntegrated,
       subjectIds:    (record.subjects || []).map((s) => s.subjectId),
       examTypeIds:   (record.examTypes || []).map((e) => e.examTypeId),
+      examCategoryIds: (record.examCategories || []).map((e) => e.examCategoryId),
     });
     setModalOpen(true);
   };
@@ -228,8 +252,10 @@ export default function CoursePapersList() {
         { label: "Short Name",  accessor: (r) => composedShortName(r) },
         { label: "Program",     accessor: (r) => shortLabel(r.program) },
         { label: "DegreeLevel", accessor: (r) => shortLabel(r.degreeLevel) },
+        { label: "Type",        accessor: (r) => integrationLabel(r) },
         { label: "Subjects",    accessor: (r) => subjectNames(r).join(", ") },
         { label: "Exam Types",  accessor: (r) => examTypeNames(r).join(", ") },
+        { label: "Exam Categories", accessor: (r) => examCategoryNames(r).join(", ") },
         { label: "Status",      accessor: (r) => (r.isActive ? "Active" : "Inactive") },
       ],
       "course-papers"
@@ -255,6 +281,15 @@ export default function CoursePapersList() {
       width: 150,
       render: (_, r) => composedShortName(r) || "—",
       sorter: (a, b) => composedShortName(a).localeCompare(composedShortName(b)),
+    },
+    {
+      title: "Type",
+      dataIndex: "isIntegrated",
+      width: 140,
+      sorter: (a, b) => Number(b.isIntegrated) - Number(a.isIntegrated),
+      render: (_, r) => (
+        <Tag color={r.isIntegrated ? "geekblue" : "default"}>{integrationLabel(r)}</Tag>
+      ),
     },
     {
       title: "Status",
@@ -304,8 +339,20 @@ export default function CoursePapersList() {
     [degreeLevels]
   );
   const examTypeOptions = useMemo(
-    () => examTypes.filter((e) => e.isActive).map((e) => ({ value: e.id, label: e.fullName })),
+    () =>
+      examTypes
+        .filter((e) => e.isActive)
+        .map((e) => ({ value: e.id, label: e.fullName })),
     [examTypes]
+  );
+
+  const examCategoryOptions = useMemo(
+    () =>
+      examCategories
+        .filter((c) => c.isActive)
+        .sort((a, b) => a.displayOrder - b.displayOrder || a.name.localeCompare(b.name))
+        .map((c) => ({ value: c.id, label: c.name })),
+    [examCategories]
   );
 
   const selectedProgramInstituteId = useMemo(
@@ -419,7 +466,7 @@ export default function CoursePapersList() {
         onOk={() => form.submit()}
         okText={editingRecord ? "Save" : "Add"}
         confirmLoading={modalLoading}
-        destroyOnClose
+        destroyOnHidden
         centered
         width={640}
       >
@@ -490,30 +537,64 @@ export default function CoursePapersList() {
             </Col>
           </Row>
 
-          <Form.Item
-            name="subjectIds"
-            label="Subjects"
-            rules={[{ required: true, type: "array", min: 1, message: "Please select at least one subject." }]}
-            extra={!selectedProgramId ? "Select a program first." : undefined}
-          >
-            <Select
-              mode="multiple"
-              placeholder="Select subjects"
-              options={subjectOptions}
-              disabled={!selectedProgramId}
-              showSearch
-              filterOption={(input, option) =>
-                option.label.toLowerCase().includes(input.toLowerCase())
-              }
-              menuItemSelectedIcon={null}
-              optionRender={(option) => (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <span>{option.label}</span>
-                  <Checkbox checked={selectedSubjectIds.includes(option.value)} />
-                </div>
-              )}
-            />
-          </Form.Item>
+          <Row gutter={16}>
+            <Col span={8}>
+              <Form.Item
+                name="isIntegrated"
+                label="Type"
+                rules={[{ required: true, message: "Please select a type." }]}
+              >
+                <Select
+                  placeholder="Select type"
+                  options={[
+                    { value: false, label: "Non-Integrated" },
+                    { value: true,  label: "Integrated" },
+                  ]}
+                  // Switching to non-integrated drops all but the first
+                  // subject, because the backend refuses a non-integrated
+                  // paper carrying more than one.
+                  onChange={(val) => {
+                    if (val) return;
+                    const picked = form.getFieldValue("subjectIds") || [];
+                    if (picked.length > 1) form.setFieldValue("subjectIds", picked.slice(0, 1));
+                  }}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={16}>
+              <Form.Item
+                name="subjectIds"
+                label={isIntegrated ? "Subjects" : "Subject"}
+                rules={[{ required: true, type: "array", min: 1, message: "Please select at least one subject." }]}
+                extra={
+                  !selectedProgramId
+                    ? "Select a program first."
+                    : isIntegrated
+                      ? undefined
+                      : "A non-integrated course/paper covers one subject only."
+                }
+              >
+                <Select
+                  mode="multiple"
+                  placeholder={isIntegrated ? "Select subjects" : "Select a subject"}
+                  options={subjectOptions}
+                  disabled={!selectedProgramId}
+                  maxCount={isIntegrated ? undefined : 1}
+                  showSearch
+                  filterOption={(input, option) =>
+                    option.label.toLowerCase().includes(input.toLowerCase())
+                  }
+                  menuItemSelectedIcon={null}
+                  optionRender={(option) => (
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <span>{option.label}</span>
+                      <Checkbox checked={selectedSubjectIds.includes(option.value)} />
+                    </div>
+                  )}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
 
           <Form.Item
             name="examTypeIds"
@@ -534,6 +615,29 @@ export default function CoursePapersList() {
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <span>{option.label}</span>
                   <Checkbox checked={selectedExamTypeIds.includes(option.value)} />
+                </div>
+              )}
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="examCategoryIds"
+            label="Exam Categories"
+            extra="Which categories this course/paper is examined under (Theory, OSPE, ...). A paper left uncategorized simply won't appear in any category's lane when scheduling."
+          >
+            <Select
+              mode="multiple"
+              placeholder="Select exam categories"
+              options={examCategoryOptions}
+              showSearch
+              filterOption={(input, option) =>
+                option.label.toLowerCase().includes(input.toLowerCase())
+              }
+              menuItemSelectedIcon={null}
+              optionRender={(option) => (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span>{option.label}</span>
+                  <Checkbox checked={selectedExamCategoryIds.includes(option.value)} />
                 </div>
               )}
             />
@@ -562,6 +666,11 @@ export default function CoursePapersList() {
             <Descriptions.Item label="Short Name">{composedShortName(viewRecord) || "—"}</Descriptions.Item>
             <Descriptions.Item label="Program">{shortLabel(viewRecord.program) || "—"}</Descriptions.Item>
             <Descriptions.Item label="Degree Level">{shortLabel(viewRecord.degreeLevel) || "—"}</Descriptions.Item>
+            <Descriptions.Item label="Type">
+              <Tag color={viewRecord.isIntegrated ? "geekblue" : "default"}>
+                {integrationLabel(viewRecord)}
+              </Tag>
+            </Descriptions.Item>
             <Descriptions.Item label="Subjects">
               {subjectFullNames(viewRecord).length === 0 ? (
                 "—"
@@ -579,6 +688,17 @@ export default function CoursePapersList() {
               ) : (
                 <Space size={[4, 4]} wrap>
                   {examTypeFullNames(viewRecord).map((name) => (
+                    <Tag key={name}>{name}</Tag>
+                  ))}
+                </Space>
+              )}
+            </Descriptions.Item>
+            <Descriptions.Item label="Exam Categories">
+              {examCategoryFullNames(viewRecord).length === 0 ? (
+                "—"
+              ) : (
+                <Space size={[4, 4]} wrap>
+                  {examCategoryFullNames(viewRecord).map((name) => (
                     <Tag key={name}>{name}</Tag>
                   ))}
                 </Space>

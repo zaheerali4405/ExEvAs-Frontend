@@ -1,13 +1,15 @@
 import { useState, useEffect, useMemo } from "react";
 import {
   Table, Input, Select, Button, Tag, Alert, Space, Tooltip,
-  Pagination, Modal, Form, ColorPicker, InputNumber, Typography,
+  Pagination, Modal, Form, InputNumber, Typography,
 } from "antd";
 import { EditOutlined, DownloadOutlined } from "@ant-design/icons";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import PageCard from "../../components/PageCard";
 import { getExamTypes, createExamType, updateExamType, setExamTypeStatus } from "../../api/examTypesApi";
+import { getExamScopes } from "../../api/examScopesApi";
 import { exportToExcel } from "../../utils/exportExcel";
+import { infoTip } from "../../utils/formTooltip";
 import { useAuth } from "../../context/AuthContext";
 
 const { Text } = Typography;
@@ -53,6 +55,7 @@ export default function ExamTypesList() {
   const isMobile = useIsMobile();
   const { can } = useAuth();
   const [examTypes, setExamTypes] = useState([]);
+  const [examScopes, setExamScopes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [searchBy, setSearchBy] = useState(null);
@@ -62,7 +65,6 @@ export default function ExamTypesList() {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
   const [editingRecord, setEditingRecord] = useState(null);
-  const [colorDraft, setColorDraft] = useState(undefined);
   const [dutyRulesDraft, setDutyRulesDraft] = useState(emptyDutyRules());
   const [form] = Form.useForm();
 
@@ -78,8 +80,20 @@ export default function ExamTypesList() {
       } finally {
         setLoading(false);
       }
+      try {
+        const { data } = await getExamScopes();
+        setExamScopes(data);
+      } catch {
+        // Non-fatal — the Scope dropdown just stays empty.
+      }
     })();
   }, []);
+
+  const examScopeOptions = useMemo(
+    () => examScopes.filter((s) => s.isActive).map((s) => ({ value: s.id, label: s.name })),
+    [examScopes]
+  );
+  const examScopeById = useMemo(() => new Map(examScopes.map((s) => [s.id, s])), [examScopes]);
 
   const filtered = useMemo(() => {
     if (!searchTerm.trim()) return examTypes;
@@ -123,15 +137,19 @@ export default function ExamTypesList() {
   const openAddModal = () => {
     setEditingRecord(null);
     form.resetFields();
-    setColorDraft(undefined);
+    form.setFieldsValue({ linksCoursePapers: true });
     setDutyRulesDraft(emptyDutyRules());
     setModalOpen(true);
   };
 
   const openEditModal = (record) => {
     setEditingRecord(record);
-    form.setFieldsValue({ fullName: record.fullName, shortName: record.shortName });
-    setColorDraft(record.color || undefined);
+    form.setFieldsValue({
+      fullName: record.fullName,
+      shortName: record.shortName,
+      examScopeId: record.examScopeId,
+      linksCoursePapers: record.linksCoursePapers !== false,
+    });
     const byDutyType = new Map((record.dutyRules || []).map((r) => [r.dutyType, r]));
     setDutyRulesDraft(
       DUTY_TYPE_OPTIONS.map((o) => {
@@ -157,7 +175,6 @@ export default function ExamTypesList() {
     setModalLoading(true);
     const payload = {
       ...values,
-      color: colorDraft || undefined,
       dutyRules: dutyRulesDraft.map((r) => ({
         dutyType: r.dutyType,
         minCount: r.minCount ?? 0,
@@ -189,7 +206,7 @@ export default function ExamTypesList() {
         { label: "S.No.",      accessor: (_, i) => i + 1 },
         { label: "Full Name",  accessor: (r) => r.fullName },
         { label: "Short Name", accessor: (r) => r.shortName || "" },
-        { label: "Color",      accessor: (r) => r.color || "" },
+        { label: "Scope",      accessor: (r) => r.examScope?.name || "" },
         { label: "Status",     accessor: (r) => (r.isActive ? "Active" : "Inactive") },
       ],
       "exam-types"
@@ -215,6 +232,26 @@ export default function ExamTypesList() {
       dataIndex: "shortName",
       width: 130,
       render: (val) => val || "—",
+    },
+    {
+      title: "Scope",
+      width: 210,
+      render: (_, record) => {
+        const scope = record.examScope || examScopeById.get(record.examScopeId);
+        return (
+          <>
+            {scope ? <Tag>{scope.name}</Tag> : "—"}
+            {/* Only the exception is flagged — course/paper linking is on
+                for every ordinary exam type, so saying so on each row would
+                be noise. */}
+            {record.linksCoursePapers === false && (
+              <Tag color="purple" title="No course/papers, no class — an admission or induction test">
+                Standalone
+              </Tag>
+            )}
+          </>
+        );
+      },
     },
     {
       title: "Status",
@@ -333,7 +370,7 @@ export default function ExamTypesList() {
         onOk={() => form.submit()}
         okText={editingRecord ? "Save" : "Add"}
         confirmLoading={modalLoading}
-        destroyOnClose
+        destroyOnHidden
         centered
         width={640}
       >
@@ -366,20 +403,32 @@ export default function ExamTypesList() {
               <Input placeholder="e.g. PASU" />
             </Form.Item>
 
-            <Form.Item label="Color">
-              <ColorPicker
-                value={colorDraft}
-                onChangeComplete={(c) => setColorDraft(c.toHexString())}
-                allowClear
-                onClear={() => setColorDraft(undefined)}
-                showText
-              />
+            <Form.Item
+              name="examScopeId"
+              label="Scope"
+              style={{ flex: 1 }}
+              rules={[{ required: true, message: "Please select a scope." }]}
+            >
+              <Select placeholder="Select scope" options={examScopeOptions} />
             </Form.Item>
           </Space>
 
           <Form.Item
+            name="linksCoursePapers"
+            label="Course/Paper Linking"
+            tooltip={infoTip("On: exams of this type examine our own students, so each one carries course/papers and through them a class. Off: a standalone exam sat by people who are not our students, such as an admission or induction test — no papers and no class, just a category, a date and a title.")}
+          >
+            <Select
+              options={[
+                { value: true, label: "On — exams carry course/papers" },
+                { value: false, label: "Off — standalone exam (admission/induction test)" },
+              ]}
+            />
+          </Form.Item>
+
+          <Form.Item
             label="Duty Type Rules"
-            tooltip="Maximums are enforced when assigning staff. Minimums are advisory only, shown in the calendar's staff list. Invigilator can either be a fixed count or auto-calculated from class strength."
+            tooltip={infoTip("Maximums are enforced when assigning staff. Minimums are advisory only, shown in the calendar's staff list. Invigilator can either be a fixed count or auto-calculated from class strength.")}
             style={{ marginBottom: 8 }}
           >
             <Table

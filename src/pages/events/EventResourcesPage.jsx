@@ -22,9 +22,6 @@ import { useAuth } from "../../context/AuthContext";
 
 const { Title, Text } = Typography;
 
-// Only this exam type (Prof Exam) allows multiple venues per event — matches
-// the backend rule in EventVenuesService.
-const MULTI_VENUE_CATEGORY_ID = 1;
 
 const VENUE_CATEGORY_LABELS = {
   static: "Static",
@@ -214,8 +211,11 @@ export default function EventResourcesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventId]);
 
-  const isMultiVenueCategory = event?.examType?.id === MULTI_VENUE_CATEGORY_ID;
-  const canAddMoreVenues = isMultiVenueCategory || assignedVenues.length === 0;
+  // How many venues one occurrence may hold comes from its (exam category,
+  // exam scope) pair, resolved server-side and served on the event itself —
+  // set per cell on the Exam Category Rules page. The same check runs again
+  // in EventVenuesService, so this only decides whether to offer the form.
+  const canAddMoreVenues = !!event?.rules?.allowsMultipleVenues || assignedVenues.length === 0;
 
   const availableVenueOptions = useMemo(() => {
     const assignedIds = new Set(assignedVenues.map((v) => v.venueId));
@@ -887,7 +887,7 @@ export default function EventResourcesPage() {
         onOk={() => venueForm.submit()}
         okText="Save"
         confirmLoading={venueModalLoading}
-        destroyOnClose
+        destroyOnHidden
         centered
       >
         <Form
@@ -930,7 +930,7 @@ export default function EventResourcesPage() {
         onOk={() => equipmentForm.submit()}
         okText="Save"
         confirmLoading={equipmentModalLoading}
-        destroyOnClose
+        destroyOnHidden
         centered
       >
         <Form
@@ -972,7 +972,7 @@ export default function EventResourcesPage() {
         onOk={() => staffForm.submit()}
         okText="Save"
         confirmLoading={staffModalLoading}
-        destroyOnClose
+        destroyOnHidden
         centered
       >
         <Form

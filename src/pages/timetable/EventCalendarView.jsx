@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Button, Alert, Typography, Spin, Empty, Modal, Tag, Segmented, Table, Space,
-  Select, InputNumber, Form, Tooltip, DatePicker, TimePicker,
+  Select, InputNumber, Form, Tooltip, DatePicker, TimePicker, Dropdown, Switch, Input, Badge,
 } from "antd";
 import {
   LeftOutlined, RightOutlined, PlusOutlined, EditOutlined, DeleteOutlined, SaveOutlined, CloseOutlined,
+  DoubleLeftOutlined, DoubleRightOutlined, SearchOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import DashboardLayout from "../../layouts/DashboardLayout";
@@ -20,16 +21,18 @@ import {
   getEventStaff, assignEventStaff, updateEventStaff, unassignEventStaff, getEventStaffDutyLimits,
 } from "../../api/eventStaffApi";
 import { getEventDepartments } from "../../api/eventDepartmentsApi";
-import { getOspeOsceExams } from "../../api/ospeOsceApi";
 import { getVenues } from "../../api/venuesApi";
 import { getEquipment } from "../../api/equipmentApi";
 import { getEmployees } from "../../api/employeesApi";
 import { getDepartments } from "../../api/departmentsApi";
+import { getSessions } from "../../api/sessionsApi";
 import { useAuth } from "../../context/AuthContext";
 import EventFormModal from "../events/EventFormModal";
 import AddExamsModal from "./AddExamsModal";
+import VenueAllocationModal from "./VenueAllocationModal";
 
 const { Title, Text } = Typography;
+const { RangePicker } = DatePicker;
 
 const VIEW_OPTIONS = [
   { label: "Year", value: "year" },
@@ -38,7 +41,6 @@ const VIEW_OPTIONS = [
   { label: "Day", value: "day" },
 ];
 
-const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
@@ -79,20 +81,26 @@ const employeeLabel = (e) =>
 // event.update-past. An event with no date yet is never "past".
 const isPastEvent = (ev) => !!ev?.eventDate && dayjs(ev.eventDate).isBefore(dayjs().startOf("day"), "day");
 
-// Same as Event.fullName, but with the program abbreviated to its short
-// name — reads cleaner as a modal title than the fully spelled-out program
-// name.
+// Same as Event.fullName, but with the program and the exam category
+// abbreviated to their short names — reads cleaner as a modal title than the
+// fully spelled-out versions. Joins every combined course/paper (a category
+// with allowsMultiplePapers may have more than one).
 const detailsModalTitle = (ev) => {
   if (!ev) return undefined;
   const program = ev.program?.shortName || ev.program?.fullName || "";
-  const base = [program, ev.degreeLevel?.fullName, ev.coursePaper?.fullName, ev.examType?.fullName, ev.session?.name]
+  const category = ev.examCategory?.shortName || ev.examCategory?.name || "";
+  const papers = (ev.coursePapers || []).map((cp) => cp.coursePaper?.fullName).filter(Boolean).join(", ");
+  const base = [program, ev.degreeLevel?.fullName, papers, ev.examType?.fullName, ev.session?.name, category]
     .filter(Boolean)
     .join(" ");
   return ev.isRetake ? `${base} RT` : base;
 };
 
-
 const DAY_ROW_HEIGHT = 56; // px per hour in Day/Week views
+
+// A shade darker than the #f0f0f0 used elsewhere, so the month grid reads
+// as a grid without the lines competing with the event blocks inside it.
+const MONTH_CELL_BORDER = "#d9d9d9";
 
 const WEEKDAY_FULL_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
@@ -102,52 +110,50 @@ const WEEKDAY_FULL_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Frida
 const HALF_HOUR_HEIGHT = DAY_ROW_HEIGHT / 2;
 const HALF_HOURS = Array.from({ length: 48 }, (_, i) => i); // i*30 minutes
 
-// Falls back to the old neutral outlined style when an exam type has no
-// color configured (Exam Types page) — otherwise a light tint of the exam
-// type's own color, so each block reads at a glance without needing to open
-// it. Text always stays dark/neutral regardless of the color, for contrast.
-function hexToRgba(hex, alpha) {
-  const clean = hex.replace("#", "");
-  const r = parseInt(clean.slice(0, 2), 16);
-  const g = parseInt(clean.slice(2, 4), 16);
-  const b = parseInt(clean.slice(4, 6), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
+// Background, text and border all come from the event's own (category ×
+// exam scope) pair, resolved server-side into event.colors — the same
+// Theory paper is colored differently sat as an Internal exam than as a
+// Professional one. Every block uses the same solid border regardless of
+// category shape (timed vs date-only, combinable, etc.) — that's conveyed
+// inside the event's own details, not by varying the border style here.
 function examBlockStyle(ev) {
-  const color = ev?.examType?.color;
-  if (!color) return { background: "transparent", color: "#262626", border: "1px solid #d9d9d9" };
-  return { background: hexToRgba(color, 0.14), color: "#262626", border: `1px solid ${color}` };
+  const colors = ev?.colors;
+  return {
+    background: colors?.backgroundColor || "#f0f0f0",
+    color: colors?.textColor || "#262626",
+    border: `1px solid ${colors?.borderColor || "#bfbfbf"}`,
+  };
 }
 
-// OSPE/OSCE blocks reuse the same exam-type color tint as Theory events (so
-// the same exam type reads consistently) but always get a dashed border —
-// the one visual cue that distinguishes "OSPE/OSCE, date-only" from a
-// regular timed/venued Theory exam block at a glance.
-function ospeOsceBlockStyle(record) {
-  const color = record?.examType?.color;
-  if (!color) return { background: "#f9f0ff", color: "#262626", border: "1px dashed #9254de" };
-  return { background: hexToRgba(color, 0.14), color: "#262626", border: `1px dashed ${color}` };
+// A small swatch at the start of every event block, carrying the event's
+// program's own color — a second color identity alongside the block's own
+// category-based background/border, so a program is recognizable at a
+// glance without opening the event.
+function ProgramColorTag({ ev }) {
+  return (
+    <span
+      style={{
+        width: 10,
+        height: 10,
+        flexShrink: 0,
+        borderRadius: 3,
+        // Separates the square from a block whose own background may be a
+        // near shade of the same color.
+        border: "1px solid #fff",
+        background: ev?.program?.color || "#d9d9d9",
+      }}
+    />
+  );
 }
 
-// Mirrors OspeOsceList.jsx's own papersLabel/classLabel/dateRangeLabel
-// helpers — kept as separate local copies since this file has its own
-// STATUS_LABELS/STATUS_TAG_COLORS already matching the same EventStatus enum.
-const ospeOscePapersLabel = (record) =>
-  (record.coursePapers || [])
-    .map((cp) => (cp.coursePaper?.shortName || cp.coursePaper?.fullName || `#${cp.coursePaperId}`) + (cp.isRetake ? " (RT)" : ""))
-    .join(", ");
-
-const ospeOsceClassLabel = (record) => {
-  const program = record.program?.shortName || record.program?.fullName || "";
-  return [program, record.degreeLevel?.fullName, record.session?.name].filter(Boolean).join(" ");
-};
-
-const ospeOsceDateRangeLabel = (record) => {
-  if (!record.startDate) return "Not set";
-  const start = dayjs(record.startDate).format("DD MMM YYYY");
-  const end = record.endDate ? dayjs(record.endDate).format("DD MMM YYYY") : null;
-  return end && end !== start ? `${start} – ${end}` : start;
+// A single date for a single-date category, or a range (or just the start,
+// if no end is set yet) for a date-range one.
+const eventDateRangeLabel = (ev) => {
+  if (!ev.eventDate) return "Not set";
+  const start = dayjs(ev.eventDate).format("DD MMM YYYY");
+  if (!ev.rules?.allowsDateRange || !ev.endDate) return start;
+  const end = dayjs(ev.endDate).format("DD MMM YYYY");
+  return end !== start ? `${start} – ${end}` : start;
 };
 
 function timeToMinutes(t) {
@@ -242,7 +248,7 @@ function buildMonthGrid(monthStart) {
 // [[project_moderation_meeting_split]] memory) — so this no longer scopes by
 // category, it just shows every Event.
 export default function EventCalendarView({ bulkAddEnabled = false }) {
-  const { can } = useAuth();
+  const { can, user } = useAuth();
   const canReschedule = can("event.update");
   const canEditEventTime = can("event.update-time");
   const canViewVenues = can("event-venue.read-all");
@@ -256,7 +262,10 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
   const canUnassignStaff = can("event-staff.unassign");
   const canViewDepartments = can("event-department.read-all");
   const canEditPastEvents = can("event.update-past");
-  const canViewOspeOsce = can("ospe-osce.read-all") || can("ospe-osce.read-departmental");
+  // The Holding Area is a scheduler's worklist, so it's hidden outright for
+  // roles that have no business acting on the backlog. Reassignable from the
+  // Role Permissions page without a code change.
+  const canViewHoldingArea = can("event.read-holding");
   // Whether the viewer can act on any resource at all — decides whether the
   // details modal shows the table+form assignment UI (useful for someone who
   // manages resources) or a plain, friendly read-only summary (everyone
@@ -266,8 +275,26 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
 
   const [viewMode, setViewMode] = useState("month");
   const [allEvents, setAllEvents] = useState([]);
-  const [allOspeOsce, setAllOspeOsce] = useState([]);
-  const [ospeOsceDetails, setOspeOsceDetails] = useState(null);
+  // Sessions are only needed to know which one is current — the jump target
+  // for a backwards search is scoped to it, so an old session's Block-I
+  // doesn't drag the calendar years into the past.
+  const [sessions, setSessions] = useState([]);
+  const [searchOpen, setSearchOpen] = useState(false);
+  // Draft lives in the panel; nothing narrows the calendar until Apply.
+  const [draftPairs, setDraftPairs] = useState([]);
+  const [draftExamTypeIds, setDraftExamTypeIds] = useState([]);
+  const [draftIncludePast, setDraftIncludePast] = useState(false);
+  // "all" | "department" | "institute" — how far the view reaches from the
+  // signed-in user. Applies the moment it changes, like the text box and
+  // unlike the dropdowns: it's a single click with nothing to complete, and
+  // it's the control you flick between while watching the calendar.
+  const [scope, setScope] = useState("all");
+  // { pairs, examTypeIds, includePast } once applied, else null for "no filter".
+  const [appliedFilter, setAppliedFilter] = useState(null);
+  // Refines the applied result set live, without its own Apply.
+  const [searchText, setSearchText] = useState("");
+  // A date to bring into view once Month view has rendered it.
+  const [pendingScrollDate, setPendingScrollDate] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [currentMonth, setCurrentMonth] = useState(() => dayjs().startOf("month"));
@@ -297,14 +324,17 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
   // just stays read-only text inside the same editable row.
   const [dateTimeEditing, setDateTimeEditing] = useState(false);
   const [dateDraft, setDateDraft] = useState(null);
+  // Only used for a date-range category (allowsDateRange) — a single-date
+  // category's Date cell stays a plain DatePicker using dateDraft alone.
+  const [endDateDraft, setEndDateDraft] = useState(null);
   const [startTimeDraft, setStartTimeDraft] = useState(null);
   const [endTimeDraft, setEndTimeDraft] = useState(null);
   const [dateTimeSaving, setDateTimeSaving] = useState(false);
 
-  // Venue is a single inline-editable row (at most one per event in this
-  // modal — see MULTI_VENUE_CATEGORY_ID note on EventResourcesPage.jsx for
-  // the one exam category that technically allows more; only the first is
-  // surfaced here). venueEditing toggles the row between its read-only
+  // Venue is a single inline-editable row. A pair whose rules allow multiple
+  // venues can hold more than one, but only the first is surfaced here — the
+  // Event Resources page is where a second one is added. venueEditing
+  // toggles the row between its read-only
   // display and an editable one (Select + inputs); a brand-new, not-yet-
   // assigned venue starts the row in edit mode automatically.
   const [venueEditing, setVenueEditing] = useState(false);
@@ -343,38 +373,247 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [addModalDate, setAddModalDate] = useState(null);
   const [bulkAddModalOpen, setBulkAddModalOpen] = useState(false);
+  const [venueAllocationDate, setVenueAllocationDate] = useState(null);
+  // Month view needs the width for its day grid, so both the Holding
+  // Area and the app sidebar start collapsed there (see the effect below
+  // and DashboardLayout's collapseSidebar). Every other view opens with
+  // the Holding Area showing, as before.
+  const [holdingAreaOpen, setHoldingAreaOpen] = useState(false);
   const dayGridRef = useRef(null);
   const weekGridRef = useRef(null);
+  const monthGridRef = useRef(null);
+  // Month cells are square: their height tracks their own width, which is a
+  // seventh of the grid. Measured rather than hardcoded so it stays square
+  // as the window resizes or the sidebar/Holding Area is toggled. Used as a
+  // minimum, so a day with more events than fit still grows its week row.
+  const [monthCellSize, setMonthCellSize] = useState(0);
+
+  useEffect(() => {
+    if (viewMode !== "month") return;
+    const el = monthGridRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const measure = (width) => setMonthCellSize(Math.max(Math.floor(width / 7), 110));
+    measure(el.getBoundingClientRect().width);
+    const ro = new ResizeObserver(([entry]) => measure(entry.contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [viewMode, loading]);
+
+  // Collapse on entering month view, open on leaving it. Switching views is
+  // the only thing that moves it — a manual toggle while staying on the
+  // same view is left alone.
+  useEffect(() => {
+    setHoldingAreaOpen(viewMode !== "month");
+  }, [viewMode]);
 
   useEffect(() => {
     (async () => {
       setLoading(true);
       setError("");
       try {
-        const [{ data: eventsData }, ospeOsceData] = await Promise.all([
-          getEvents(),
-          canViewOspeOsce ? getOspeOsceExams().then((r) => r.data) : Promise.resolve([]),
-        ]);
+        const { data: eventsData } = await getEvents();
         setAllEvents(eventsData);
-        setAllOspeOsce(ospeOsceData);
       } catch (err) {
         setError(err.response?.data?.message || "Could not load events.");
       } finally {
         setLoading(false);
       }
+
+      // Only used to identify the current session for a backwards search;
+      // a failure just drops that narrowing rather than breaking search.
+      if (can("session.read-all")) {
+        try {
+          const { data } = await getSessions();
+          setSessions(data);
+        } catch {
+          // Non-fatal — the jump then considers every session's past events.
+        }
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const events = allEvents;
+  // Filter options come from the events themselves rather than from the
+  // lookup tables: an option that would match nothing is no use in a search,
+  // and this needs no extra requests.
+  // The two narrowings /auth/me resolves for the signed-in user: their own
+  // department plus everything under it, and every department of the
+  // institute that department belongs to. Both empty for anyone with no
+  // Employee record (a student, say), who has nothing to narrow to.
+  const departmentScopeIds = useMemo(
+    () => new Set(user?.departmentScopeIds || []),
+    [user]
+  );
+  const instituteScopeIds = useMemo(
+    () => new Set(user?.instituteScopeDepartmentIds || []),
+    [user]
+  );
+  const hasOwnDepartment = departmentScopeIds.size > 0;
+
+  const pairKeyOf = (e) => `${e.programId}-${e.degreeLevelId}`;
+
+  const pairOptions = useMemo(() => {
+    const byKey = new Map();
+    allEvents.forEach((e) => {
+      if (!e.programId || !e.degreeLevelId) return;
+      const key = pairKeyOf(e);
+      if (byKey.has(key)) return;
+      const label = `${e.program?.shortName || e.program?.fullName || ""} ${e.degreeLevel?.fullName || ""}`.trim();
+      byKey.set(key, label);
+    });
+    return Array.from(byKey, ([value, label]) => ({ value, label })).sort((a, b) =>
+      a.label.localeCompare(b.label)
+    );
+  }, [allEvents]);
+
+  // Narrowed by whatever is picked in the first dropdown, so the exam types
+  // on offer are the ones those classes actually sit.
+  const examTypeOptions = useMemo(() => {
+    const byId = new Map();
+    allEvents.forEach((e) => {
+      if (draftPairs.length > 0 && !draftPairs.includes(pairKeyOf(e))) return;
+      if (e.examType) byId.set(e.examType.id, e.examType.fullName);
+    });
+    return Array.from(byId, ([value, label]) => ({ value, label })).sort((a, b) =>
+      a.label.localeCompare(b.label)
+    );
+  }, [allEvents, draftPairs]);
+
+  // A picked exam type that the current class selection no longer offers
+  // would silently filter everything out, so it's dropped from the draft.
+  useEffect(() => {
+    setDraftExamTypeIds((prev) => {
+      const allowed = new Set(examTypeOptions.map((o) => o.value));
+      const next = prev.filter((id) => allowed.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [examTypeOptions]);
+
+  const matchesFilter = (e, filter) => {
+    if (filter.pairs.length > 0 && !filter.pairs.includes(pairKeyOf(e))) return false;
+    if (filter.examTypeIds.length > 0 && !filter.examTypeIds.includes(e.examTypeId)) return false;
+    return true;
+  };
+
+  // Scope is checked apart from the applied filter because it takes effect
+  // on its own, with or without one. An event's departments are derived from
+  // its course/papers' subjects, so this reads as "taught by ..." — matching
+  // any single one is enough, since a combined paper can span several.
+  const withinScope = (e) => {
+    if (scope === "all" || !hasOwnDepartment) return true;
+    const reach = scope === "institute" ? instituteScopeIds : departmentScopeIds;
+    return (e.eventDepartments || []).some((d) => reach.has(d.departmentId));
+  };
+
+  // "Search Previous" widens the range rather than replacing it: off, only
+  // today onwards; on, past events are included too. Either way an applied
+  // filter hides everything that doesn't match. An undated event has no date
+  // to judge, so the range never excludes one — that's the Holding Area's
+  // whole population.
+  const filteredEvents = useMemo(() => {
+    let list = allEvents.filter(withinScope);
+    if (appliedFilter) {
+      const today = dayjs().startOf("day");
+      list = list.filter((e) => {
+        if (!matchesFilter(e, appliedFilter)) return false;
+        if (!appliedFilter.includePast && e.eventDate) {
+          const end = e.endDate || e.eventDate;
+          if (dayjs(end).isBefore(today, "day")) return false;
+        }
+        return true;
+      });
+    }
+    const term = searchText.trim().toLowerCase();
+    if (term) {
+      list = list.filter(
+        (e) =>
+          (e.shortName || "").toLowerCase().includes(term) ||
+          (e.fullName || "").toLowerCase().includes(term)
+      );
+    }
+    return list;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allEvents, appliedFilter, searchText, scope, hasOwnDepartment, departmentScopeIds, instituteScopeIds]);
+
+  const filterActive = !!appliedFilter || searchText.trim() !== "" || scope !== "all";
+  const events = filteredEvents;
 
   const canCreateHere = can("event.create") || can("event.create-departmental");
 
+
+  // Where Apply should take the calendar. Off: the next occurrence from today
+  // onwards. On: the earliest PAST one, but only within the current session —
+  // otherwise an old session's Block-I would drag the view years back. Falls
+  // through to the upcoming target when there's no past match to land on.
+  const jumpTargetFor = (filter) => {
+    const dated = allEvents.filter(
+      (e) => e.eventDate && matchesFilter(e, filter) && withinScope(e)
+    );
+    if (dated.length === 0) return null;
+    const today = dayjs().startOf("day");
+    const earliest = (list) =>
+      list.reduce((best, e) => (!best || dayjs(e.eventDate).isBefore(dayjs(best.eventDate)) ? e : best), null);
+
+    if (filter.includePast) {
+      const currentSessionIds = new Set(
+        sessions.filter((x) => x.isCurrent).map((x) => x.id)
+      );
+      const past = dated.filter(
+        (e) =>
+          dayjs(e.eventDate).isBefore(today, "day") &&
+          (currentSessionIds.size === 0 || currentSessionIds.has(e.sessionId))
+      );
+      if (past.length > 0) return earliest(past).eventDate;
+    }
+    const upcoming = dated.filter((e) => !dayjs(e.eventDate).isBefore(today, "day"));
+    if (upcoming.length > 0) return earliest(upcoming).eventDate;
+    return earliest(dated).eventDate;
+  };
+
+  const applySearchFilter = () => {
+    const next = {
+      pairs: draftPairs,
+      examTypeIds: draftExamTypeIds,
+      includePast: draftIncludePast,
+    };
+    setAppliedFilter(next);
+    setSearchOpen(false);
+
+    const target = jumpTargetFor(next);
+    if (target) {
+      // Month view is the one that scrolls to a week row, so Apply lands
+      // there regardless of which view was open.
+      setViewMode("month");
+      setCurrentMonth(dayjs(target).startOf("month"));
+      setPendingScrollDate(dayjs(target).format("YYYY-MM-DD"));
+    }
+  };
+
+  const clearSearchFilter = () => {
+    setDraftPairs([]);
+    setDraftExamTypeIds([]);
+    setDraftIncludePast(false);
+    setScope("all");
+    setAppliedFilter(null);
+    setSearchText("");
+  };
+
+  // Brings the target week into view once Month view has actually rendered
+  // the cell — the month has to change first, so this can't run inline.
+  useEffect(() => {
+    if (!pendingScrollDate || viewMode !== "month" || loading) return;
+    const el = monthGridRef.current?.querySelector(`[data-date="${pendingScrollDate}"]`);
+    if (!el) return;
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    setPendingScrollDate(null);
+  }, [pendingScrollDate, viewMode, currentMonth, loading, monthCellSize]);
+
   // Holding Area holds every event still in Hold status — a Hold event with a
-  // full date/time also appears on the calendar below (faded, non-clickable)
-  // simultaneously, until time + all three resource types get it to Scheduled.
-  // Events with no date yet always stay in the Holding Area — only a dated
-  // event that's already in the past drops off.
+  // full date/time also appears on the calendar below (rendered the same as
+  // any other event — status is visually differentiated separately, not by
+  // fading it out) simultaneously, until time + all three resource types get
+  // it to Scheduled. Events with no date yet always stay in the Holding
+  // Area — only a dated event that's already in the past drops off.
   const holdEvents = useMemo(
     () => {
       const today = dayjs().startOf("day");
@@ -387,45 +626,124 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
 
   // Any event with a date shows here regardless of status or whether time is
   // set yet — Month view's day box doesn't need a time slot to place it in.
-  // Fading (isHold below) is what signals "not confirmed yet", not presence.
+  // Every status renders the same way for now (isHold below only feeds the
+  // tooltip) — a color scheme to tell statuses apart is still to come.
+  // A date-range category (allowsDateRange, e.g. OSPE/OSCE) shows on every
+  // day it spans, not just its start date.
   const eventsByDate = useMemo(() => {
     const map = {};
     events.forEach((e) => {
       if (!e.eventDate) return;
-      const key = dayjs(e.eventDate).format("YYYY-MM-DD");
-      if (!map[key]) map[key] = [];
-      map[key].push(e);
-    });
-    return map;
-  }, [events]);
-
-  // OSPE/OSCE has no time slot — just a date range — so it's shown once per
-  // calendar day it spans, the same way an untimed Event shows in Month
-  // view's day box and Week/Day view's all-day strip below. Entries with no
-  // date yet (still Hold) don't appear here, same as a dateless Event.
-  const ospeOsceByDate = useMemo(() => {
-    const map = {};
-    allOspeOsce.forEach((o) => {
-      if (!o.startDate) return;
-      const start = dayjs(o.startDate).startOf("day");
-      const end = o.endDate ? dayjs(o.endDate).startOf("day") : start;
+      const start = dayjs(e.eventDate).startOf("day");
+      const end = e.rules?.allowsDateRange && e.endDate ? dayjs(e.endDate).startOf("day") : start;
       let cursor = start;
       let days = 0;
       // Guard against an absurdly wide range looping forever.
       while (!cursor.isAfter(end) && days < 60) {
         const key = cursor.format("YYYY-MM-DD");
         if (!map[key]) map[key] = [];
-        map[key].push(o);
+        map[key].push(e);
         cursor = cursor.add(1, "day");
         days += 1;
       }
     });
     return map;
-  }, [allOspeOsce]);
-
-  const openOspeOsceDetails = (record) => setOspeOsceDetails(record);
+  }, [events]);
 
   const weeks = useMemo(() => buildMonthGrid(currentMonth), [currentMonth]);
+
+  // Multi-day runs packed into horizontal lanes, one week row at a time.
+  // Each run takes the lowest lane free for every day it covers, so a run
+  // occupies the same vertical slot in every day box it crosses and its
+  // per-day segments line up into one straight bar. Every cell then renders
+  // one slot per lane, an unused slot as a transparent spacer.
+  //
+  // Without this each cell stacked only its own segments, bottom-anchored,
+  // in event order — so the moment two runs shared a day the slots stopped
+  // agreeing between neighbouring cells and a bar either stepped vertically
+  // or left a stray-looking stub where a neighbour's run sat.
+  //
+  // A run is cut at the week boundary: a range crossing Sunday/Monday
+  // becomes one bar per week row, each labelled at its own left edge,
+  // rather than one unlabelled continuation row.
+  const spanningLanesByWeek = useMemo(() => {
+    const byWeek = new Map();
+    weeks.forEach((week) => {
+      const runsById = new Map();
+      week.forEach((day) => {
+        (eventsByDate[day.format("YYYY-MM-DD")] || []).forEach((ev) => {
+          if (runsById.has(ev.id)) return;
+          const start = dayjs(ev.eventDate).startOf("day");
+          const end = ev.rules?.allowsDateRange && ev.endDate ? dayjs(ev.endDate).startOf("day") : start;
+          if (!end.isAfter(start, "day")) return;
+          // Indexes are looked up in the week itself rather than by date
+          // arithmetic, so a DST boundary can't shift a segment by a day.
+          const startIdx = start.isBefore(week[0], "day") ? 0 : week.findIndex((d) => d.isSame(start, "day"));
+          const endIdx = end.isAfter(week[6], "day") ? 6 : week.findIndex((d) => d.isSame(end, "day"));
+          if (startIdx === -1 || endIdx === -1) return;
+          runsById.set(ev.id, { ev, start, end, startIdx, endIdx });
+        });
+      });
+
+      // Earliest first, then longest, so the runs that cover the most days
+      // settle into the top lanes and the short ones fill in beneath.
+      const runs = [...runsById.values()].sort(
+        (a, b) =>
+          a.startIdx - b.startIdx ||
+          (b.endIdx - b.startIdx) - (a.endIdx - a.startIdx) ||
+          a.start.valueOf() - b.start.valueOf() ||
+          a.ev.id - b.ev.id
+      );
+
+      const lanes = [];
+      runs.forEach((run) => {
+        let laneIdx = lanes.findIndex((lane) =>
+          lane.every((other) => run.endIdx < other.startIdx || run.startIdx > other.endIdx)
+        );
+        if (laneIdx === -1) {
+          lanes.push([]);
+          laneIdx = lanes.length - 1;
+        }
+        lanes[laneIdx].push(run);
+        run.lane = laneIdx;
+      });
+
+      byWeek.set(week[0].format("YYYY-MM-DD"), { laneCount: lanes.length, runs });
+    });
+    return byWeek;
+  }, [weeks, eventsByDate]);
+
+  // One day cell's content: the events belonging to that day alone, and one
+  // lane slot per multi-day run in the week — null where that lane has
+  // nothing on this day.
+  const monthCellEvents = (day, week) => {
+    const dateStr = day.format("YYYY-MM-DD");
+    const single = (eventsByDate[dateStr] || []).filter((ev) => {
+      const start = dayjs(ev.eventDate).startOf("day");
+      const end = ev.rules?.allowsDateRange && ev.endDate ? dayjs(ev.endDate).startOf("day") : start;
+      return !end.isAfter(start, "day");
+    });
+
+    const { laneCount = 0, runs = [] } = spanningLanesByWeek.get(week[0].format("YYYY-MM-DD")) || {};
+    const dayIdx = week.findIndex((d) => d.isSame(day, "day"));
+    const lanes = Array.from({ length: laneCount }, () => null);
+    if (dayIdx !== -1) {
+      runs.forEach((run) => {
+        if (dayIdx < run.startIdx || dayIdx > run.endIdx) return;
+        lanes[run.lane] = {
+          ev: run.ev,
+          isRunStart: dayIdx === run.startIdx,
+          isRunEnd: dayIdx === run.endIdx,
+          isRangeStart: day.isSame(run.start, "day"),
+          isRangeEnd: day.isSame(run.end, "day"),
+          // Day count of this week's run — the opening segment's label is
+          // allowed to lay out across the whole bar, not just its own cell.
+          runDays: run.endIdx - run.startIdx + 1,
+        };
+      });
+    }
+    return { single, lanes };
+  };
 
   // Year view: total events scheduled per month. Event is Exam-only now, so
   // there's no per-category breakdown to show anymore — just a count.
@@ -640,6 +958,7 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
   const openDateTimeEdit = () => {
     setDateTimeEditing(true);
     setDateDraft(detailsEvent.eventDate ? dayjs(detailsEvent.eventDate) : null);
+    setEndDateDraft(detailsEvent.endDate ? dayjs(detailsEvent.endDate) : null);
     setStartTimeDraft(detailsEvent.startTime ? dayjs(detailsEvent.startTime, "HH:mm") : null);
     setEndTimeDraft(detailsEvent.endTime ? dayjs(detailsEvent.endTime, "HH:mm") : null);
   };
@@ -647,12 +966,15 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
   const cancelDateTimeEdit = () => {
     setDateTimeEditing(false);
     setDateDraft(null);
+    setEndDateDraft(null);
     setStartTimeDraft(null);
     setEndTimeDraft(null);
   };
 
   const canEditDate = canReschedule && !detailsPastLocked;
   const canEditTimeField = canEditEventTime && !detailsPastLocked;
+  const detailsAllowsDateRange = !!detailsEvent?.rules?.allowsDateRange;
+  const detailsNeedsTimeSlot = detailsEvent?.rules?.needsTimeSlot ?? true;
 
   const handleSaveDateTime = async () => {
     if (!detailsEvent) return;
@@ -660,9 +982,12 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
     setError("");
     try {
       if (canEditDate) {
-        await updateEvent(detailsEvent.id, { eventDate: dateDraft ? dateDraft.format("YYYY-MM-DD") : undefined });
+        await updateEvent(detailsEvent.id, {
+          eventDate: dateDraft ? dateDraft.format("YYYY-MM-DD") : undefined,
+          endDate: detailsAllowsDateRange ? (endDateDraft ? endDateDraft.format("YYYY-MM-DD") : undefined) : undefined,
+        });
       }
-      if (canEditTimeField) {
+      if (canEditTimeField && detailsNeedsTimeSlot) {
         await updateEventTime(detailsEvent.id, {
           startTime: startTimeDraft ? startTimeDraft.format("HH:mm") : undefined,
           endTime: endTimeDraft ? endTimeDraft.format("HH:mm") : undefined,
@@ -907,17 +1232,13 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
     return layoutDayEvents(scoped);
   }, [events, currentDay]);
 
+  // Untimed events for the day — includes both a dateless-time Theory event
+  // and every day a date-range category (allowsDateRange) spans, since
+  // eventsByDate already expands those across their full range.
   const dayUntimedEvents = useMemo(() => {
     const dateStr = currentDay.format("YYYY-MM-DD");
-    return events.filter(
-      (e) => e.eventDate && dayjs(e.eventDate).format("YYYY-MM-DD") === dateStr && (!e.startTime || !e.endTime)
-    );
-  }, [events, currentDay]);
-
-  const dayOspeOsce = useMemo(
-    () => ospeOsceByDate[currentDay.format("YYYY-MM-DD")] || [],
-    [ospeOsceByDate, currentDay]
-  );
+    return (eventsByDate[dateStr] || []).filter((e) => !e.startTime || !e.endTime);
+  }, [eventsByDate, currentDay]);
 
   // Pre-scroll the Day view's hour grid to 8:00 whenever it's opened or the
   // date changes, so the working day is visible without an extra scroll.
@@ -951,12 +1272,10 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
     const map = {};
     weekDays.forEach((day) => {
       const dateStr = day.format("YYYY-MM-DD");
-      map[dateStr] = events.filter(
-        (e) => e.eventDate && dayjs(e.eventDate).format("YYYY-MM-DD") === dateStr && (!e.startTime || !e.endTime)
-      );
+      map[dateStr] = (eventsByDate[dateStr] || []).filter((e) => !e.startTime || !e.endTime);
     });
     return map;
-  }, [events, weekDays]);
+  }, [eventsByDate, weekDays]);
 
   useEffect(() => {
     if (viewMode === "week" && weekGridRef.current) {
@@ -1000,10 +1319,21 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
     if (draggedEventId) handleReschedule(draggedEventId, dateStr);
   };
 
-  // Holding Area — always visible, regardless of which calendar view is active.
-  const holdingArea = (
+  // Holding Area — visible on every calendar view to whoever holds
+  // event.read-holding, and absent (not merely collapsed) for everyone else so
+  // the calendar takes the full width. Collapses/expands horizontally, like
+  // the app's own Sidebar — shrinking to a slim vertical strip that hands its
+  // width back to the calendar, rather than just hiding its list in place.
+  const holdingArea = !canViewHoldingArea ? null : holdingAreaOpen ? (
     <PageCard style={{ flex: "0 1 220px", minWidth: 220 }}>
-      <Title level={5} style={{ marginTop: 0 }}>Holding Area</Title>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+        <Title level={5} style={{ margin: 0 }}>
+          Holding Area{holdEvents.length > 0 ? ` (${holdEvents.length})` : ""}
+        </Title>
+        <Tooltip title="Collapse">
+          <Button type="text" size="small" icon={<DoubleRightOutlined />} onClick={() => setHoldingAreaOpen(false)} />
+        </Tooltip>
+      </div>
 
       {holdEvents.length === 0 ? (
         <Empty description="Nothing on hold" image={Empty.PRESENTED_IMAGE_SIMPLE} />
@@ -1016,29 +1346,165 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
               onDragStart={onDragStart(ev.id)}
               onClick={() => openDetails(ev)}
               style={{
-                ...(ev.examType?.color ? examBlockStyle(ev) : { background: "#f0f0f0", border: "1px solid #d9d9d9" }),
+                ...examBlockStyle(ev),
                 borderRadius: 4,
                 padding: "6px 10px",
                 cursor: canReschedule ? "grab" : "pointer",
                 opacity: reschedulingId === ev.id ? 0.5 : 1,
               }}
             >
-              <div style={{ fontSize: 12, fontWeight: 500 }}>{ev.shortName}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 500 }}>
+                <ProgramColorTag ev={ev} />
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.shortName}</span>
+              </div>
             </div>
           ))}
         </div>
       )}
     </PageCard>
+  ) : (
+    <PageCard style={{ flex: "0 0 auto", width: 44, minWidth: 44, padding: "12px 0" }}>
+      <div
+        onClick={() => setHoldingAreaOpen(true)}
+        style={{ display: "flex", flexDirection: "column", alignItems: "center", cursor: "pointer" }}
+      >
+        <Tooltip title="Expand Holding Area" placement="left">
+          <DoubleLeftOutlined />
+        </Tooltip>
+        {holdEvents.length > 0 && (
+          <div style={{ marginTop: 10, fontSize: 11, fontWeight: 700, color: "#1AB394" }}>{holdEvents.length}</div>
+        )}
+        <div
+          style={{
+            writingMode: "vertical-rl",
+            transform: "rotate(180deg)",
+            marginTop: 14,
+            fontSize: 12,
+            fontWeight: 600,
+            color: "#595959",
+            whiteSpace: "nowrap",
+          }}
+        >
+          Holding Area
+        </div>
+      </div>
+    </PageCard>
   );
 
   return (
     <DashboardLayout
+      collapseSidebar={viewMode === "month"}
       headerAction={
-        bulkAddEnabled && canCreateHere ? (
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setBulkAddModalOpen(true)}>
-            Add Exams
-          </Button>
-        ) : undefined
+        <Space>
+          <Dropdown
+            open={searchOpen}
+            onOpenChange={setSearchOpen}
+            trigger={["click"]}
+            placement="bottomRight"
+            popupRender={() => (
+              <div
+                style={{
+                  width: 340,
+                  padding: 16,
+                  background: "#fff",
+                  borderRadius: 8,
+                  boxShadow: "0 6px 16px rgba(0,0,0,0.12)",
+                }}
+              >
+                <div style={{ marginBottom: 12 }}>
+                  <Text strong style={{ display: "block", marginBottom: 6, fontSize: 12 }}>Class</Text>
+                  <Select
+                    mode="multiple"
+                    allowClear
+                    showSearch
+                    placeholder="Any class"
+                    value={draftPairs}
+                    onChange={setDraftPairs}
+                    options={pairOptions}
+                    style={{ width: "100%" }}
+                    filterOption={(input, option) => option.label.toLowerCase().includes(input.toLowerCase())}
+                    maxTagCount="responsive"
+                  />
+                </div>
+
+                <div style={{ marginBottom: 12 }}>
+                  <Text strong style={{ display: "block", marginBottom: 6, fontSize: 12 }}>Exam Type</Text>
+                  <Select
+                    mode="multiple"
+                    allowClear
+                    showSearch
+                    placeholder={draftPairs.length ? "Any exam type for these classes" : "Any exam type"}
+                    value={draftExamTypeIds}
+                    onChange={setDraftExamTypeIds}
+                    options={examTypeOptions}
+                    style={{ width: "100%" }}
+                    filterOption={(input, option) => option.label.toLowerCase().includes(input.toLowerCase())}
+                    maxTagCount="responsive"
+                  />
+                </div>
+
+                <div style={{ marginBottom: 12 }}>
+                  <Text strong style={{ display: "block", marginBottom: 6, fontSize: 12 }}>
+                    Scope{" "}
+                    <Text type="secondary" style={{ fontWeight: 400, fontSize: 11 }}>
+                      (applies immediately)
+                    </Text>
+                  </Text>
+                  <Tooltip
+                    title={
+                      hasOwnDepartment
+                        ? `Department: exams taught by ${user?.employee?.department?.name || "your department"} and anything under it. Institute: every department of ${user?.employee?.department?.institute?.shortName || user?.employee?.department?.institute?.fullName || "your institute"}.`
+                        : "No department is linked to your account, so there is nothing to narrow to."
+                    }
+                  >
+                    <Segmented
+                      block
+                      value={hasOwnDepartment ? scope : "all"}
+                      onChange={setScope}
+                      disabled={!hasOwnDepartment}
+                      options={[
+                        { label: "All", value: "all" },
+                        { label: "Department", value: "department" },
+                        { label: "Institute", value: "institute" },
+                      ]}
+                    />
+                  </Tooltip>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                  <Switch checked={draftIncludePast} onChange={setDraftIncludePast} />
+                  <Tooltip title="Off, the search covers today onwards. On, past events are included too — and Apply jumps back to the earliest match in the current session.">
+                    <Text style={{ fontSize: 12 }}>Search Previous</Text>
+                  </Tooltip>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 12 }}>
+                  <Button onClick={clearSearchFilter}>Clear</Button>
+                  <Button type="primary" onClick={applySearchFilter}>Apply</Button>
+                </div>
+
+                {/* Refines whatever is already applied, live — no Apply. */}
+                <Input
+                  allowClear
+                  prefix={<SearchOutlined style={{ color: "#bfbfbf" }} />}
+                  placeholder="Search within results"
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                />
+              </div>
+            )}
+          >
+            <Badge dot={filterActive} offset={[-2, 2]}>
+              <Button icon={<SearchOutlined />}>Search</Button>
+            </Badge>
+          </Dropdown>
+
+          {bulkAddEnabled && canCreateHere && (
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setBulkAddModalOpen(true)}>
+              Add Exams
+            </Button>
+          )}
+        </Space>
       }
     >
       {error && (
@@ -1137,7 +1603,7 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                 </div>
               ) : (
                 <>
-                  {(dayUntimedEvents.length > 0 || dayOspeOsce.length > 0) && (
+                  {dayUntimedEvents.length > 0 && (
                     <div style={{ display: "flex", border: "1px solid #f0f0f0", borderBottom: "none", borderRadius: "6px 6px 0 0" }}>
                       <div style={{ width: 56, flexShrink: 0, borderRight: "1px solid #f0f0f0", fontSize: 10, color: "#bfbfbf", padding: "4px 6px" }}>
                         All-day
@@ -1148,43 +1614,29 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                           return (
                             <div
                               key={ev.id}
-                              onClick={() => { if (!isHold) openDetails(ev); }}
+                              onClick={() => openDetails(ev)}
                               title={isHold ? `${ev.fullName} (Hold)` : ev.fullName}
                               style={{
                                 ...examBlockStyle(ev),
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 5,
                                 fontSize: 11,
                                 lineHeight: "18px",
                                 borderRadius: 3,
                                 padding: "0 6px",
-                                cursor: isHold ? "not-allowed" : "pointer",
-                                opacity: isHold ? 0.5 : 1,
+                                cursor: "pointer",
                               }}
                             >
+                              <ProgramColorTag ev={ev} />
                               {ev.shortName}
                             </div>
                           );
                         })}
-                        {dayOspeOsce.map((o) => (
-                          <div
-                            key={`ospe-${o.id}`}
-                            onClick={() => openOspeOsceDetails(o)}
-                            title={`OSPE/OSCE: ${ospeOscePapersLabel(o)}`}
-                            style={{
-                              ...ospeOsceBlockStyle(o),
-                              fontSize: 11,
-                              lineHeight: "18px",
-                              borderRadius: 3,
-                              padding: "0 6px",
-                              cursor: "pointer",
-                            }}
-                          >
-                            OSPE/OSCE: {ospeOscePapersLabel(o)}
-                          </div>
-                        ))}
                       </div>
                     </div>
                   )}
-                  <div ref={dayGridRef} style={{ display: "flex", border: "1px solid #f0f0f0", borderRadius: (dayUntimedEvents.length > 0 || dayOspeOsce.length > 0) ? "0 0 6px 6px" : 6, maxHeight: "70vh", overflowY: "auto" }}>
+                  <div ref={dayGridRef} style={{ display: "flex", border: "1px solid #f0f0f0", borderRadius: dayUntimedEvents.length > 0 ? "0 0 6px 6px" : 6, maxHeight: "70vh", overflowY: "auto" }}>
                   {/* Time labels */}
                   <div style={{ width: 56, flexShrink: 0, borderRight: "1px solid #f0f0f0" }}>
                     {HALF_HOURS.map((i) => (
@@ -1241,7 +1693,7 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                       return (
                       <div
                         key={ev.id}
-                        onClick={() => { if (!isHold) openDetails(ev); }}
+                        onClick={() => openDetails(ev)}
                         title={isHold ? `${ev.fullName} (Hold)` : ev.fullName}
                         style={{
                           position: "absolute",
@@ -1254,13 +1706,13 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                           padding: "3px 6px",
                           fontSize: 11,
                           overflow: "hidden",
-                          cursor: isHold ? "not-allowed" : "pointer",
-                          opacity: isHold ? 0.5 : 1,
+                          cursor: "pointer",
                           zIndex: 2,
                         }}
                       >
-                        <div style={{ fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                          {ev.shortName}
+                        <div style={{ display: "flex", alignItems: "center", gap: 5, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          <ProgramColorTag ev={ev} />
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{ev.shortName}</span>
                         </div>
                         <div style={{ fontSize: 10, opacity: 0.85 }}>
                           {ev.startTime} – {ev.endTime}
@@ -1344,13 +1796,12 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
 
                   {/* All-day strip — dated events with no time set yet; not
                       scrolled, so it also needs the scrollbar-width padding. */}
-                  {weekDays.some((day) => (weekUntimedEventsByDate[day.format("YYYY-MM-DD")] || []).length > 0 || (ospeOsceByDate[day.format("YYYY-MM-DD")] || []).length > 0) && (
+                  {weekDays.some((day) => (weekUntimedEventsByDate[day.format("YYYY-MM-DD")] || []).length > 0) && (
                     <div style={{ display: "grid", gridTemplateColumns: "56px repeat(7, 1fr)", borderBottom: "1px solid #f0f0f0", paddingRight: weekScrollbarWidth }}>
                       <div style={{ fontSize: 10, color: "#bfbfbf", padding: "4px 6px", borderRight: "1px solid #f0f0f0" }}>All-day</div>
                       {weekDays.map((day) => {
                         const dateStr = day.format("YYYY-MM-DD");
                         const untimed = weekUntimedEventsByDate[dateStr] || [];
-                        const ospeOsceForDay = ospeOsceByDate[dateStr] || [];
                         return (
                           <div key={dateStr} style={{ borderLeft: "1px solid #f0f0f0", padding: 4, display: "flex", flexDirection: "column", gap: 3 }}>
                             {untimed.map((ev) => {
@@ -1358,45 +1809,27 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                               return (
                                 <div
                                   key={ev.id}
-                                  onClick={() => { if (!isHold) openDetails(ev); }}
+                                  onClick={() => openDetails(ev)}
                                   title={isHold ? `${ev.fullName} (Hold)` : ev.fullName}
                                   style={{
                                     ...examBlockStyle(ev),
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 4,
                                     fontSize: 10,
                                     lineHeight: "16px",
                                     borderRadius: 3,
                                     padding: "0 4px",
-                                    cursor: isHold ? "not-allowed" : "pointer",
-                                    opacity: isHold ? 0.5 : 1,
-                                    whiteSpace: "nowrap",
-                                    overflow: "hidden",
-                                    textOverflow: "ellipsis",
+                                    cursor: "pointer",
                                   }}
                                 >
-                                  {ev.shortName}
+                                  <ProgramColorTag ev={ev} />
+                                  <span style={{ minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                    {ev.shortName}
+                                  </span>
                                 </div>
                               );
                             })}
-                            {ospeOsceForDay.map((o) => (
-                              <div
-                                key={`ospe-${o.id}`}
-                                onClick={() => openOspeOsceDetails(o)}
-                                title={`OSPE/OSCE: ${ospeOscePapersLabel(o)}`}
-                                style={{
-                                  ...ospeOsceBlockStyle(o),
-                                  fontSize: 10,
-                                  lineHeight: "16px",
-                                  borderRadius: 3,
-                                  padding: "0 4px",
-                                  cursor: "pointer",
-                                  whiteSpace: "nowrap",
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                }}
-                              >
-                                OSPE/OSCE: {ospeOscePapersLabel(o)}
-                              </div>
-                            ))}
                           </div>
                         );
                       })}
@@ -1470,7 +1903,7 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                             return (
                               <div
                                 key={ev.id}
-                                onClick={() => { if (!isHold) openDetails(ev); }}
+                                onClick={() => openDetails(ev)}
                                 title={isHold ? `${ev.fullName} (Hold)` : ev.fullName}
                                 style={{
                                   position: "absolute",
@@ -1483,13 +1916,13 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                                   padding: "2px 4px",
                                   fontSize: 10,
                                   overflow: "hidden",
-                                  cursor: isHold ? "not-allowed" : "pointer",
-                                  opacity: isHold ? 0.5 : 1,
+                                  cursor: "pointer",
                                   zIndex: 2,
                                 }}
                               >
-                                <div style={{ fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                  {ev.shortName}
+                                <div style={{ display: "flex", alignItems: "center", gap: 4, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                  <ProgramColorTag ev={ev} />
+                                  <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{ev.shortName}</span>
                                 </div>
                               </div>
                             );
@@ -1524,10 +1957,10 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                   <Spin size="large" />
                 </div>
               ) : (
-                <div style={{ border: "1px solid #f0f0f0", borderRadius: 6, overflow: "hidden" }}>
+                <div ref={monthGridRef} style={{ border: `1px solid ${MONTH_CELL_BORDER}`, borderRadius: 6, overflow: "hidden" }}>
                   {/* Weekday header */}
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", background: "#fafafa" }}>
-                    {WEEKDAYS.map((d) => (
+                    {WEEKDAY_FULL_NAMES.map((d) => (
                       <div key={d} style={{ padding: "8px 10px", fontSize: 12, fontWeight: 600, color: "#595959", textAlign: "center" }}>
                         {d}
                       </div>
@@ -1541,29 +1974,34 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                         const dateStr = day.format("YYYY-MM-DD");
                         const inMonth = day.month() === currentMonth.month();
                         const isToday = day.isSame(dayjs(), "day");
-                        const dayEvents = eventsByDate[dateStr] || [];
-                        const dayOspeOsceEntries = ospeOsceByDate[dateStr] || [];
+                        // A day already gone is dimmed exactly like one
+                        // outside the month — both are days you can't
+                        // schedule into any more.
+                        const isMuted = !inMonth || day.isBefore(dayjs(), "day");
+                        const { single: singleEvents, lanes: spanningLanes } = monthCellEvents(day, week);
                         const isDragOver = dragOverDate === dateStr;
+                        const cellBg = isDragOver ? "#e8f7f4" : isMuted ? "#fafafa" : "#fff";
 
                         return (
                           <div
                             key={dateStr}
+                            data-date={dateStr}
                             onClick={() => goToDay(day)}
                             onDragOver={(e) => { if (canReschedule) { e.preventDefault(); setDragOverDate(dateStr); } }}
                             onDragLeave={() => setDragOverDate((prev) => (prev === dateStr ? null : prev))}
                             onDrop={canReschedule ? onDropOnDate(dateStr) : undefined}
                             style={{
                               position: "relative",
-                              height: 110,
-                              minHeight: 0,
+                              // Square at rest — see monthCellSize above.
+                              minHeight: monthCellSize || 110,
                               minWidth: 0,
                               display: "flex",
                               flexDirection: "column",
-                              borderTop: "1px solid #f0f0f0",
-                              borderLeft: "1px solid #f0f0f0",
+                              borderTop: `1px solid ${MONTH_CELL_BORDER}`,
+                              borderLeft: `1px solid ${MONTH_CELL_BORDER}`,
                               padding: 6,
-                              background: isDragOver ? "#e8f7f4" : inMonth ? "#fff" : "#fafafa",
-                              opacity: inMonth ? 1 : 0.5,
+                              background: cellBg,
+                              opacity: isMuted ? 0.5 : 1,
                               cursor: "pointer",
                             }}
                           >
@@ -1586,13 +2024,19 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                               </span>
                             )}
 
-                            <div style={{
-                              flexShrink: 0,
-                              fontSize: 12,
-                              fontWeight: isToday ? 700 : 400,
-                              color: isToday ? "#1AB394" : "#262626",
-                              marginBottom: 4,
-                            }}>
+                            <div
+                              onClick={(e) => { e.stopPropagation(); setVenueAllocationDate(day); }}
+                              title="Open venue allocation for this day"
+                              style={{
+                                flexShrink: 0,
+                                alignSelf: "flex-start",
+                                fontSize: 13,
+                                fontWeight: 700,
+                                color: isToday ? "#1AB394" : "#262626",
+                                marginBottom: 4,
+                                cursor: "pointer",
+                              }}
+                            >
                               {isToday ? (
                                 <span style={{
                                   display: "inline-flex", alignItems: "center", justifyContent: "center",
@@ -1603,10 +2047,20 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                               ) : day.date()}
                             </div>
 
-                            <div className="timetable-thin-scroll" style={{ flex: 1, minHeight: 0, minWidth: 0, overflow: "auto", display: "flex", flexDirection: "column", gap: 3 }}>
-                              {dayEvents.map((ev) => {
+                            {/* No inner scroll: the list takes its natural
+                                height and the day cell grows to fit, which
+                                grows the whole week row with it (every cell
+                                in a CSS-Grid row stretches to the tallest).
+                                A busy day therefore makes its week taller
+                                rather than hiding events behind a scrollbar. */}
+                            <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 3 }}>
+                              {singleEvents.map((ev) => {
                                 const isHold = ev.status === "hold";
-                                const isDraggable = canReschedule && (!isPastEvent(ev) || canEditPastEvents);
+                                // Dragging a date-range event (allowsDateRange, e.g. OSPE/OSCE)
+                                // onto a single day is ambiguous — which end moves? — so
+                                // rescheduling by drag is only offered for single-date events.
+                                const isDraggable =
+                                  canReschedule && !ev.rules?.allowsDateRange && (!isPastEvent(ev) || canEditPastEvents);
                                 return (
                                 <div
                                   key={ev.id}
@@ -1616,44 +2070,125 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                                   title={isHold ? `${ev.fullName} (Hold)` : ev.fullName}
                                   style={{
                                     ...examBlockStyle(ev),
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 4,
                                     fontSize: 11,
                                     lineHeight: "18px",
                                     height: 18,
                                     flexShrink: 0,
-                                    alignSelf: "flex-start",
+                                    // Full cell width, and a name longer than
+                                    // that is simply cut off — the block's own
+                                    // tooltip carries the full name, so the
+                                    // trimmed tail costs nothing.
+                                    alignSelf: "stretch",
+                                    overflow: "hidden",
                                     borderRadius: 3,
                                     padding: "0 6px",
                                     whiteSpace: "nowrap",
                                     cursor: isDraggable ? "grab" : "pointer",
-                                    opacity: reschedulingId === ev.id ? 0.5 : isHold ? 0.5 : 1,
+                                    opacity: reschedulingId === ev.id ? 0.5 : 1,
                                   }}
                                 >
-                                  {ev.shortName}
+                                  <ProgramColorTag ev={ev} />
+                                  <span style={{ minWidth: 0, overflow: "hidden" }}>{ev.shortName}</span>
                                 </div>
                                 );
                               })}
-                              {dayOspeOsceEntries.map((o) => (
-                                <div
-                                  key={`ospe-${o.id}`}
-                                  onClick={(e) => { e.stopPropagation(); openOspeOsceDetails(o); }}
-                                  title={`OSPE/OSCE: ${ospeOscePapersLabel(o)}`}
-                                  style={{
-                                    ...ospeOsceBlockStyle(o),
-                                    fontSize: 11,
-                                    lineHeight: "18px",
-                                    height: 18,
-                                    flexShrink: 0,
-                                    alignSelf: "flex-start",
-                                    borderRadius: 3,
-                                    padding: "0 6px",
-                                    whiteSpace: "nowrap",
-                                    cursor: "pointer",
-                                  }}
-                                >
-                                  OSPE/OSCE: {ospeOscePapersLabel(o)}
-                                </div>
-                              ))}
                             </div>
+
+                            {/* Multi-day events, pinned to the bottom of every
+                                cell (marginTop:auto) so a run stays on one
+                                visual line across the week no matter how many
+                                single-day blocks sit above it in any one day.
+                                One slot per lane, in the same order in every
+                                cell of the week, so two runs sharing a day
+                                never land on each other's line — an unused
+                                lane holds an empty spacer of exactly one
+                                segment's height. Each day renders its own
+                                segment; the segments fuse into one continuous
+                                bar by dropping the border and radius on the
+                                side they continue into and bleeding over the
+                                shared cell border by exactly padding + border
+                                (6 + 1px). The name is drawn once, on the
+                                segment that opens the run in this week. */}
+                            {spanningLanes.length > 0 && (
+                              <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 3, marginTop: "auto", paddingTop: 3 }}>
+                                {spanningLanes.map((segment, laneIdx) => {
+                                  if (!segment) {
+                                    return <div key={`lane-${laneIdx}`} style={{ height: 18, flexShrink: 0 }} />;
+                                  }
+                                  const { ev, isRunStart, isRunEnd, isRangeStart, isRangeEnd, runDays } = segment;
+                                  const isHold = ev.status === "hold";
+                                  const style = examBlockStyle(ev);
+                                  return (
+                                    <div
+                                      key={ev.id}
+                                      onClick={(e) => { e.stopPropagation(); openDetails(ev); }}
+                                      title={isHold ? `${ev.fullName} (Hold)` : ev.fullName}
+                                      style={{
+                                        position: "relative",
+                                        // The opening segment paints above
+                                        // the continuation ones so its label
+                                        // — which overflows into them — is
+                                        // not covered by their background.
+                                        zIndex: isRunStart ? 2 : 1,
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: 4,
+                                        backgroundColor: cellBg,
+                                        backgroundImage: `linear-gradient(${style.background}, ${style.background})`,
+                                        color: style.color,
+                                        borderTop: style.border,
+                                        borderBottom: style.border,
+                                        borderLeft: isRunStart ? style.border : "none",
+                                        borderRight: isRunEnd ? style.border : "none",
+                                        borderTopLeftRadius: isRangeStart ? 3 : 0,
+                                        borderBottomLeftRadius: isRangeStart ? 3 : 0,
+                                        borderTopRightRadius: isRangeEnd ? 3 : 0,
+                                        borderBottomRightRadius: isRangeEnd ? 3 : 0,
+                                        marginLeft: isRunStart ? 0 : -7,
+                                        marginRight: isRunEnd ? 0 : -7,
+                                        fontSize: 11,
+                                        lineHeight: "18px",
+                                        height: 18,
+                                        flexShrink: 0,
+                                        // visible on the opening segment so a
+                                        // name wider than one day cell can run
+                                        // along the rest of the bar; the label
+                                        // itself is bounded to the bar's width
+                                        // below.
+                                        overflow: isRunStart ? "visible" : "hidden",
+                                        padding: isRunStart ? "0 6px" : 0,
+                                        whiteSpace: "nowrap",
+                                        cursor: "pointer",
+                                        opacity: reschedulingId === ev.id ? 0.5 : 1,
+                                      }}
+                                    >
+                                      {isRunStart && (
+                                        <>
+                                          <ProgramColorTag ev={ev} />
+                                          {/* Free to take its natural width up
+                                              to the length of the bar, so a
+                                              name that fits the run is shown
+                                              whole rather than cut at the
+                                              first day's edge. */}
+                                          <span
+                                            style={{
+                                              flexShrink: 0,
+                                              maxWidth: `calc(${runDays} * 100%)`,
+                                              overflow: "hidden",
+                                            }}
+                                          >
+                                            {ev.shortName}
+                                          </span>
+                                        </>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
                           </div>
                         );
                       })}
@@ -1701,37 +2236,49 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
               dataSource={[{}]}
               columns={[
                 {
-                  title: "Date",
+                  title: detailsAllowsDateRange ? "Date Range" : "Date",
                   render: () =>
                     dateTimeEditing && canEditDate ? (
-                      <DatePicker
-                        size="small"
-                        style={{ width: "100%" }}
-                        format="YYYY-MM-DD"
-                        value={dateDraft}
-                        onChange={setDateDraft}
-                      />
-                    ) : detailsEvent.eventDate ? (
-                      dayjs(detailsEvent.eventDate).format("DD MMM YYYY")
+                      detailsAllowsDateRange ? (
+                        <RangePicker
+                          size="small"
+                          style={{ width: "100%" }}
+                          format="YYYY-MM-DD"
+                          value={[dateDraft, endDateDraft]}
+                          onChange={(vals) => { setDateDraft(vals?.[0] ?? null); setEndDateDraft(vals?.[1] ?? null); }}
+                        />
+                      ) : (
+                        <DatePicker
+                          size="small"
+                          style={{ width: "100%" }}
+                          format="YYYY-MM-DD"
+                          value={dateDraft}
+                          onChange={setDateDraft}
+                        />
+                      )
                     ) : (
-                      "Not set"
+                      eventDateRangeLabel(detailsEvent)
                     ),
                 },
-                {
-                  title: "Time",
-                  render: () =>
-                    dateTimeEditing && canEditTimeField ? (
-                      <Space size={4}>
-                        <TimePicker size="small" style={{ width: 100 }} format="HH:mm" value={startTimeDraft} onChange={setStartTimeDraft} />
-                        <span>–</span>
-                        <TimePicker size="small" style={{ width: 100 }} format="HH:mm" value={endTimeDraft} onChange={setEndTimeDraft} />
-                      </Space>
-                    ) : detailsEvent.startTime && detailsEvent.endTime ? (
-                      `${detailsEvent.startTime} – ${detailsEvent.endTime}`
-                    ) : (
-                      "Not set"
-                    ),
-                },
+                ...(detailsNeedsTimeSlot
+                  ? [
+                      {
+                        title: "Time",
+                        render: () =>
+                          dateTimeEditing && canEditTimeField ? (
+                            <Space size={4}>
+                              <TimePicker size="small" style={{ width: 100 }} format="HH:mm" value={startTimeDraft} onChange={setStartTimeDraft} />
+                              <span>–</span>
+                              <TimePicker size="small" style={{ width: 100 }} format="HH:mm" value={endTimeDraft} onChange={setEndTimeDraft} />
+                            </Space>
+                          ) : detailsEvent.startTime && detailsEvent.endTime ? (
+                            `${detailsEvent.startTime} – ${detailsEvent.endTime}`
+                          ) : (
+                            "Not set"
+                          ),
+                      },
+                    ]
+                  : []),
                 ...(canEditDate || canEditTimeField
                   ? [
                       {
@@ -1795,6 +2342,8 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                     </Space>
                   )}
 
+                  {detailsEvent.rules?.needsVenue && (
+                  <>
                   <Title level={5} style={{ marginTop: 20, marginBottom: 8 }}>Venues</Title>
                   {!canViewVenues ? (
                     <Text type="secondary">You don't have permission to view this.</Text>
@@ -1910,7 +2459,11 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                       ]}
                     />
                   )}
+                  </>
+                  )}
 
+                  {detailsEvent.rules?.needsEquipment && (
+                  <>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 20, marginBottom: 8 }}>
                     <Title level={5} style={{ margin: 0 }}>Equipment</Title>
                     {canAssignEquipment && !detailsPastLocked && equipmentEditingKey === null && (
@@ -2052,7 +2605,11 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                       ]}
                     />
                   )}
+                  </>
+                  )}
 
+                  {detailsEvent.rules?.needsStaff && (
+                  <>
                   <Title level={5} style={{ marginTop: 20, marginBottom: 8 }}>Event Staff</Title>
                   {!canViewStaff ? (
                     <Text type="secondary">You don't have permission to view this.</Text>
@@ -2145,6 +2702,8 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                       */}
                     </>
                   )}
+                  </>
+                  )}
                 </>
               ) : (
                 // Read-only viewer: plain labeled lists instead of tables with
@@ -2159,6 +2718,8 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                     <Text>{detailsResources.departments.map((d) => d.department?.name ?? "—").join(", ")}</Text>
                   )}
 
+                  {detailsEvent.rules?.needsVenue && (
+                  <>
                   <Title level={5} style={{ marginTop: 20, marginBottom: 8 }}>Venue(s)</Title>
                   {!canViewVenues ? (
                     <Text type="secondary">You don't have permission to view this.</Text>
@@ -2171,7 +2732,11 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                       ))}
                     </div>
                   )}
+                  </>
+                  )}
 
+                  {detailsEvent.rules?.needsEquipment && (
+                  <>
                   <Title level={5} style={{ marginTop: 20, marginBottom: 8 }}>Equipment</Title>
                   {!canViewEquipment ? (
                     <Text type="secondary">You don't have permission to view this.</Text>
@@ -2184,7 +2749,11 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                       ))}
                     </div>
                   )}
+                  </>
+                  )}
 
+                  {detailsEvent.rules?.needsStaff && (
+                  <>
                   <Title level={5} style={{ marginTop: 20, marginBottom: 8 }}>Duty Staff</Title>
                   {!canViewStaff ? (
                     <Text type="secondary">You don't have permission to view this.</Text>
@@ -2199,6 +2768,8 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                         </div>
                       ))}
                     </div>
+                  )}
+                  </>
                   )}
                 </>
               ))
@@ -2216,7 +2787,7 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
         onOk={() => staffForm.submit()}
         okText="Save"
         confirmLoading={staffModalLoading}
-        destroyOnClose
+        destroyOnHidden
         centered
       >
         <Form form={staffForm} layout="vertical" onFinish={handleEditStaffFinish} requiredMark={false} style={{ marginTop: 16 }}>
@@ -2239,7 +2810,7 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
         open={addModalOpen}
         editingRecord={null}
         initialDate={addModalDate}
-        existingEvents={events}
+        existingEvents={allEvents}
         onCancel={() => setAddModalOpen(false)}
         onSuccess={handleAddModalSuccess}
         onError={setError}
@@ -2248,57 +2819,24 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
       {bulkAddEnabled && (
         <AddExamsModal
           open={bulkAddModalOpen}
-          existingEvents={events}
+          existingEvents={allEvents}
           onCancel={() => setBulkAddModalOpen(false)}
           onSuccess={handleBulkAddSuccess}
           onError={setError}
         />
       )}
 
-      {/* OSPE/OSCE details — read-only summary; editing lives on the
-          dedicated OSPE/OSCE page since it's scheduled independently of
-          Theory events (no venue/time/staff/equipment assignment here). */}
-      <Modal
-        title={
-          ospeOsceDetails && (
-            <Space align="center">
-              {`OSPE/OSCE — ${ospeOsceClassLabel(ospeOsceDetails)}`}
-              <Tag color={STATUS_TAG_COLORS[ospeOsceDetails.status]} style={{ marginBottom: 0 }}>
-                {STATUS_LABELS[ospeOsceDetails.status]}
-              </Tag>
-            </Space>
-          )
-        }
-        open={!!ospeOsceDetails}
-        onCancel={() => setOspeOsceDetails(null)}
-        footer={null}
-        destroyOnClose
-        centered
-      >
-        {ospeOsceDetails && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 12 }}>
-            <div>
-              <Text type="secondary">Course/Papers: </Text>
-              {ospeOscePapersLabel(ospeOsceDetails) || "—"}
-            </div>
-            <div>
-              <Text type="secondary">Exam Type: </Text>
-              {ospeOsceDetails.examType?.fullName ?? "—"}
-            </div>
-            <div>
-              <Text type="secondary">Venue: </Text>
-              {ospeOsceDetails.venue?.name ?? "—"}
-            </div>
-            <div>
-              <Text type="secondary">Date Range: </Text>
-              {ospeOsceDateRangeLabel(ospeOsceDetails)}
-            </div>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              Manage this entry from the OSPE/OSCE page.
-            </Text>
-          </div>
-        )}
-      </Modal>
+      {/* Per-day resource allocation view — opened from a Month view day
+          box's own date number. */}
+      <VenueAllocationModal
+        open={!!venueAllocationDate}
+        date={venueAllocationDate}
+        events={events}
+        onCancel={() => setVenueAllocationDate(null)}
+        onEventUpdated={(updated) => setAllEvents((prev) => prev.map((e) => (e.id === updated.id ? updated : e)))}
+        onOpenDetails={openDetails}
+        onError={setError}
+      />
     </DashboardLayout>
   );
 }

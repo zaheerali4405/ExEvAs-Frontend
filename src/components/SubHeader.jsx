@@ -4,9 +4,14 @@ import { useLocation, Link } from 'react-router-dom';
 
 const { Title } = Typography;
 
-// Naive plural -> singular for the "Add {Thing}" button label. Handles the
-// regular "-s" case plus "-sses"/"-xes"/"-ches"/"-shes"/"-zes" (e.g. "Classes" -> "Class").
-const singularize = (title) => title.replace(/(ss|x|ch|sh|z)es$/i, '$1').replace(/([^s])s$/i, '$1');
+// Naive plural -> singular for the "Add {Thing}" button label. Handles
+// "-ies" -> "-y" (e.g. "Categories" -> "Category"), "-sses"/"-xes"/"-ches"/
+// "-shes"/"-zes" (e.g. "Classes" -> "Class"), and the regular "-s" case.
+const singularize = (title) =>
+  title
+    .replace(/([^aeiou])ies$/i, '$1y')
+    .replace(/(ss|x|ch|sh|z)es$/i, '$1')
+    .replace(/([^s])s$/i, '$1');
 
 const routeConfig = {
   '/dashboard':        { title: 'Dashboard',        addPath: null },
@@ -24,6 +29,10 @@ const routeConfig = {
   '/degree-levels':    { title: 'Degree Levels',      addPath: '/degree-levels/add' },
   '/classes':          { title: 'Classes',            addPath: '/classes/add' },
   '/exam-types':       { title: 'Exam Types',         addPath: '/exam-types/add' },
+  '/exam-scopes':      { title: 'Exam Scopes',        addPath: '/exam-scopes/add' },
+  '/exam-categories': { title: 'Exam Categories',   addPath: '/exam-categories/add' },
+  '/exam-category-colors': { title: 'Exam Category Colors', addPath: null },
+  '/exam-category-rules': { title: 'Exam Category Rules', addPath: null },
   '/course-papers':    { title: 'Course/Papers',      addPath: '/course-papers/add' },
   '/venues':           { title: 'Venues',            addPath: '/venues/add' },
   '/equipment':        { title: 'Equipment',         addPath: '/equipment/add' },
@@ -31,7 +40,6 @@ const routeConfig = {
   '/datesheet':        { title: 'Datesheet',          addPath: null },
   '/moderation-meetings': { title: 'Moderation Meetings', addPath: '/moderation-meetings/add' },
   '/moderation-meetings-calendar': { title: 'Moderation Meeting Calendar', addPath: null },
-  '/ospe-osce':         { title: 'OSPE/OSCE',         addPath: '/ospe-osce/add' },
   '/role-permissions':  { title: 'Role Permissions',  addPath: null },
   '/designation-roles': { title: 'Designation Roles', addPath: null },
   '/user-roles':         { title: 'User Roles',         addPath: null },
@@ -61,6 +69,10 @@ const segmentLabels = {
   'degree-levels':    'Degree Levels',
   classes:            'Classes',
   'exam-types':       'Exam Types',
+  'exam-scopes':      'Exam Scopes',
+  'exam-categories': 'Exam Categories',
+  'exam-category-colors': 'Exam Category Colors',
+  'exam-category-rules': 'Exam Category Rules',
   'course-papers':    'Course/Papers',
   venues:             'Venues',
   equipment:          'Equipment',
@@ -68,7 +80,6 @@ const segmentLabels = {
   datesheet:          'Datesheet',
   'moderation-meetings': 'Moderation Meetings',
   'moderation-meetings-calendar': 'Moderation Meeting Calendar',
-  'ospe-osce':         'OSPE/OSCE',
   profile:            'My Profile',
   'change-password':  'Change Password',
   settings:           'Settings',

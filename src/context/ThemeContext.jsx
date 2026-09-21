@@ -30,7 +30,10 @@ export function ThemeProvider({ children }) {
       applyColorVars(CSS_DEFAULTS, isDark);
       return;
     }
-    axiosClient.get('/system-settings').then(({ data }) => {
+    // Branding-only endpoint: every signed-in user can read it, whereas the
+    // full settings row needs system-settings.read and 403'd for everyone
+    // else, dropping them onto fallback colours.
+    axiosClient.get('/system-settings/branding').then(({ data }) => {
       const loaded = {
         brandColor:       data.brandColor       ?? CSS_DEFAULTS.brandColor,
         lightPrimaryBg:   data.lightPrimaryBg   ?? CSS_DEFAULTS.lightPrimaryBg,

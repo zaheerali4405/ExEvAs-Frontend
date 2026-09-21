@@ -29,6 +29,7 @@ import { getExamTypes } from "../../api/examTypesApi";
 import { getRoles } from "../../api/rolesApi";
 import { getDesignations } from "../../api/designationsApi";
 import { exportToExcel } from "../../utils/exportExcel";
+import { infoTip } from "../../utils/formTooltip";
 import { useAuth } from "../../context/AuthContext";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
@@ -656,7 +657,7 @@ export default function NotificationTemplatesList() {
         onOk={() => form.submit()}
         okText={editingRecord ? "Save" : "Add"}
         confirmLoading={modalLoading}
-        destroyOnClose
+        destroyOnHidden
         centered
         width={780}
       >
@@ -750,7 +751,7 @@ export default function NotificationTemplatesList() {
               <Form.Item
                 name="message"
                 label="Message"
-                tooltip={PLACEHOLDER_HINT}
+                tooltip={infoTip(PLACEHOLDER_HINT)}
                 rules={[
                   {
                     required: true,

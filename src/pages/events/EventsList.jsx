@@ -39,6 +39,7 @@ const STATUS_COLORS = {
 const searchableColumns = [
   { value: "fullName",      label: "Full Name" },
   { value: "shortName",     label: "Short Name" },
+  { value: "category",      label: "Exam Category" },
   { value: "examType",      label: "Exam Type" },
   { value: "program",       label: "Program" },
   { value: "degreeLevel",   label: "Degree Level" },
@@ -48,7 +49,21 @@ const searchableColumns = [
 
 const examTypeLabel = (examType) => examType?.fullName ?? "";
 
+const papersLabel = (record) =>
+  (record.coursePapers || []).map((cp) => cp.coursePaper?.shortName || cp.coursePaper?.fullName).join(", ");
+
+// A single date for a single-date category, or a range (or just the start,
+// if no end is set yet) for a date-range one.
+const dateLabel = (record) => {
+  if (!record.eventDate) return "—";
+  const start = dayjs(record.eventDate).format("DD MMM YYYY");
+  if (!record.rules?.allowsDateRange || !record.endDate) return start;
+  const end = dayjs(record.endDate).format("DD MMM YYYY");
+  return end !== start ? `${start} – ${end}` : start;
+};
+
 const getFieldValue = (item, key) => {
+  if (key === "category")      return item.examCategory?.name ?? "";
   if (key === "examType")      return examTypeLabel(item.examType);
   if (key === "program")       return item.program?.fullName ?? "";
   if (key === "degreeLevel")   return item.degreeLevel?.fullName ?? "";
@@ -175,11 +190,13 @@ export default function EventsList() {
         { label: "S.No.",      accessor: (_, i) => i + 1 },
         { label: "Full Name",  accessor: (r) => r.fullName },
         { label: "Short Name", accessor: (r) => r.shortName },
+        { label: "Exam Category", accessor: (r) => r.examCategory?.name || "" },
+        { label: "Course/Papers", accessor: (r) => papersLabel(r) },
         { label: "Exam Type",      accessor: (r) => examTypeLabel(r.examType) },
         { label: "Program",     accessor: (r) => r.program?.fullName || "" },
         { label: "Degree Level", accessor: (r) => r.degreeLevel?.fullName || "" },
         { label: "Session",     accessor: (r) => r.session?.name || "" },
-        { label: "Date",       accessor: (r) => r.eventDate ? dayjs(r.eventDate).format("DD MMM YYYY") : "" },
+        { label: "Date",       accessor: (r) => dateLabel(r) },
         { label: "Start Time", accessor: (r) => r.startTime || "" },
         { label: "End Time",   accessor: (r) => r.endTime || "" },
         { label: "Status",     accessor: (r) => STATUS_OPTIONS.find((s) => s.value === r.status)?.label || r.status },
@@ -208,8 +225,13 @@ export default function EventsList() {
       width: 160,
     },
     {
+      title: "Exam Category",
+      width: 130,
+      render: (_, r) => r.examCategory?.name ?? "—",
+    },
+    {
       title: "Date",
-      render: (_, r) => r.eventDate ? dayjs(r.eventDate).format("DD MMM YYYY") : "—",
+      render: (_, r) => dateLabel(r),
     },
     {
       title: "Time",
@@ -353,6 +375,8 @@ export default function EventsList() {
             <Descriptions bordered column={2} size="small">
               <Descriptions.Item label="Full Name" span={2}>{viewRecord.fullName}</Descriptions.Item>
               <Descriptions.Item label="Short Name" span={2}>{viewRecord.shortName}</Descriptions.Item>
+              <Descriptions.Item label="Exam Category">{viewRecord.examCategory?.name ?? "—"}</Descriptions.Item>
+              <Descriptions.Item label="Course/Papers">{papersLabel(viewRecord) || "—"}</Descriptions.Item>
               <Descriptions.Item label="Exam Type">{viewRecord.examType?.fullName ?? "—"}</Descriptions.Item>
               <Descriptions.Item label="Program">{viewRecord.program?.fullName ?? "—"}</Descriptions.Item>
               <Descriptions.Item label="Degree Level">{viewRecord.degreeLevel?.fullName ?? "—"}</Descriptions.Item>
@@ -362,14 +386,14 @@ export default function EventsList() {
                   {STATUS_OPTIONS.find((s) => s.value === viewRecord.status)?.label}
                 </Tag>
               </Descriptions.Item>
-              <Descriptions.Item label="Date">
-                {viewRecord.eventDate ? dayjs(viewRecord.eventDate).format("DD MMM YYYY") : "Not set"}
-              </Descriptions.Item>
-              <Descriptions.Item label="Time">
-                {viewRecord.startTime && viewRecord.endTime
-                  ? `${viewRecord.startTime} – ${viewRecord.endTime}`
-                  : "Not set"}
-              </Descriptions.Item>
+              <Descriptions.Item label="Date">{dateLabel(viewRecord)}</Descriptions.Item>
+              {viewRecord.rules?.needsTimeSlot && (
+                <Descriptions.Item label="Time">
+                  {viewRecord.startTime && viewRecord.endTime
+                    ? `${viewRecord.startTime} – ${viewRecord.endTime}`
+                    : "Not set"}
+                </Descriptions.Item>
+              )}
             </Descriptions>
 
             {canViewDepartments && (
@@ -387,7 +411,7 @@ export default function EventsList() {
               </>
             )}
 
-            {canViewVenues && (
+            {canViewVenues && viewRecord.rules?.needsVenue && (
               <>
                 <Title level={5} style={{ marginTop: 20, marginBottom: 8 }}>Venues</Title>
                 <Table
@@ -407,7 +431,7 @@ export default function EventsList() {
               </>
             )}
 
-            {canViewEquipment && (
+            {canViewEquipment && viewRecord.rules?.needsEquipment && (
               <>
                 <Title level={5} style={{ marginTop: 20, marginBottom: 8 }}>Equipment</Title>
                 <Table

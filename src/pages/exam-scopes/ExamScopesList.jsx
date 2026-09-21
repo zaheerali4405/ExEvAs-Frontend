@@ -1,22 +1,23 @@
 import { useState, useEffect, useMemo } from "react";
 import {
   Table, Input, Select, Button, Tag, Alert, Space, Tooltip,
-  Pagination, Modal, Form, Checkbox,
+  Pagination, Modal, Form, InputNumber,
 } from "antd";
-import { EditOutlined, DownloadOutlined, KeyOutlined } from "@ant-design/icons";
-import { useNavigate } from "react-router-dom";
+import { EditOutlined, DownloadOutlined } from "@ant-design/icons";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import PageCard from "../../components/PageCard";
-import { getRoles, createRole, updateRole, setRoleStatus } from "../../api/rolesApi";
+import {
+  getExamScopes, createExamScope, updateExamScope, setExamScopeStatus,
+} from "../../api/examScopesApi";
 import { exportToExcel } from "../../utils/exportExcel";
 import { useAuth } from "../../context/AuthContext";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
 const searchableColumns = [
-  { value: "name",        label: "Name" },
-  { value: "description", label: "Description" },
-  { value: "status",      label: "Status" },
+  { value: "name",      label: "Name" },
+  { value: "shortName", label: "Short Name" },
+  { value: "status",    label: "Status" },
 ];
 
 const getFieldValue = (item, key) => {
@@ -34,11 +35,14 @@ function useIsMobile(breakpoint = 576) {
   return isMobile;
 }
 
-export default function RolesList() {
+// Classifies every Exam Type into a broad scope (Internal Exams, University
+// Exams, External Exams, Contract Based Exams, ...) — a pure grouping label.
+// Course/Paper-linking and other exam-type-specific rules live on Exam Type
+// itself now, not here.
+export default function ExamScopesList() {
   const isMobile = useIsMobile();
-  const navigate = useNavigate();
   const { can } = useAuth();
-  const [roles, setRoles] = useState([]);
+  const [scopes, setScopes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [searchBy, setSearchBy] = useState(null);
@@ -50,41 +54,38 @@ export default function RolesList() {
   const [editingRecord, setEditingRecord] = useState(null);
   const [form] = Form.useForm();
 
-  const fetchRoles = async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const { data } = await getRoles();
-      setRoles(data);
-    } catch (err) {
-      setError(err.response?.data?.message || "Could not load roles.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { fetchRoles(); }, []);
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      setError("");
+      try {
+        const { data } = await getExamScopes();
+        setScopes(data);
+      } catch (err) {
+        setError(err.response?.data?.message || "Could not load exam scopes.");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
 
   const filtered = useMemo(() => {
-    if (!searchTerm.trim()) return roles;
+    if (!searchTerm.trim()) return scopes;
     const term = searchTerm.toLowerCase();
-    return roles.filter((item) => {
-      if (!searchBy) {
-        return searchableColumns.some((col) =>
-          String(getFieldValue(item, col.value)).toLowerCase().includes(term)
-        );
-      }
+    return scopes.filter((item) => {
+      if (!searchBy)
+        return searchableColumns.some((col) => String(getFieldValue(item, col.value)).toLowerCase().includes(term));
       return String(getFieldValue(item, searchBy)).toLowerCase().includes(term);
     });
-  }, [roles, searchBy, searchTerm]);
+  }, [scopes, searchBy, searchTerm]);
 
   useEffect(() => { setCurrentPage(1); }, [searchTerm, searchBy, pageSize]);
 
-  const handleToggle = (role) => {
-    const activate = !role.isActive;
+  const handleToggle = (record) => {
+    const activate = !record.isActive;
     Modal.confirm({
-      title: activate ? "Activate Role" : "Deactivate Role",
-      content: `Are you sure you want to ${activate ? "activate" : "deactivate"} "${role.name}"?`,
+      title: activate ? "Activate Exam Scope" : "Deactivate Exam Scope",
+      content: `Are you sure you want to ${activate ? "activate" : "deactivate"} "${record.name}"?`,
       okText: activate ? "Activate" : "Deactivate",
       okButtonProps: {
         danger: !activate,
@@ -94,10 +95,8 @@ export default function RolesList() {
       centered: true,
       onOk: async () => {
         try {
-          await setRoleStatus(role.id, activate);
-          setRoles((prev) =>
-            prev.map((r) => (r.id === role.id ? { ...r, isActive: activate } : r))
-          );
+          await setExamScopeStatus(record.id, activate);
+          setScopes((prev) => prev.map((s) => (s.id === record.id ? { ...s, isActive: activate } : s)));
         } catch (err) {
           setError(err.response?.data?.message || "Could not update status.");
         }
@@ -108,33 +107,35 @@ export default function RolesList() {
   const openAddModal = () => {
     setEditingRecord(null);
     form.resetFields();
+    form.setFieldsValue({ displayOrder: 0 });
     setModalOpen(true);
   };
 
   const openEditModal = (record) => {
     setEditingRecord(record);
-    form.setFieldsValue({
-      name: record.name,
-      description: record.description,
-      isSuperAdmin: record.isSuperAdmin,
-    });
+    form.setFieldsValue({ name: record.name, shortName: record.shortName, displayOrder: record.displayOrder });
     setModalOpen(true);
   };
 
   const handleModalFinish = async (values) => {
     setModalLoading(true);
+    setError("");
+    const payload = {
+      ...values,
+      displayOrder: values.displayOrder ?? 0,
+    };
     try {
       if (editingRecord) {
-        const { data } = await updateRole(editingRecord.id, values);
-        setRoles((prev) => prev.map((r) => (r.id === data.id ? data : r)));
+        const { data } = await updateExamScope(editingRecord.id, payload);
+        setScopes((prev) => prev.map((s) => (s.id === data.id ? data : s)));
       } else {
-        const { data } = await createRole(values);
-        setRoles((prev) => [...prev, data]);
+        const { data } = await createExamScope(payload);
+        setScopes((prev) => [...prev, data]);
       }
       form.resetFields();
       setModalOpen(false);
     } catch (err) {
-      setError(err.response?.data?.message || `Could not ${editingRecord ? "update" : "create"} role.`);
+      setError(err.response?.data?.message || `Could not ${editingRecord ? "update" : "create"} exam scope.`);
     } finally {
       setModalLoading(false);
     }
@@ -144,13 +145,12 @@ export default function RolesList() {
     exportToExcel(
       filtered,
       [
-        { label: "S.No.",       accessor: (_, i) => i + 1 },
-        { label: "Name",        accessor: (r) => r.name },
-        { label: "Description", accessor: (r) => r.description || "" },
-        { label: "Super Admin", accessor: (r) => (r.isSuperAdmin ? "Yes" : "No") },
-        { label: "Status",      accessor: (r) => (r.isActive ? "Active" : "Inactive") },
+        { label: "S.No.",      accessor: (_, i) => i + 1 },
+        { label: "Name",       accessor: (r) => r.name },
+        { label: "Short Name", accessor: (r) => r.shortName || "" },
+        { label: "Status",     accessor: (r) => (r.isActive ? "Active" : "Inactive") },
       ],
-      "roles"
+      "exam-scopes"
     );
   };
 
@@ -158,48 +158,21 @@ export default function RolesList() {
   const endEntry = Math.min(currentPage * pageSize, filtered.length);
 
   const columns = [
-    {
-      title: "S.No.",
-      width: 70,
-      render: (_, __, index) => (currentPage - 1) * pageSize + index + 1,
-    },
-    {
-      title: "Name",
-      dataIndex: "name",
-      sorter: (a, b) => a.name.localeCompare(b.name),
-    },
-    {
-      title: "Description",
-      dataIndex: "description",
-      sorter: (a, b) => (a.description ?? "").localeCompare(b.description ?? ""),
-      render: (val) => val || "—",
-    },
-    {
-      title: "Super Admin",
-      dataIndex: "isSuperAdmin",
-      width: 120,
-      sorter: (a, b) => Number(b.isSuperAdmin) - Number(a.isSuperAdmin),
-      render: (isSuperAdmin) =>
-        isSuperAdmin ? <Tag color="gold">Super Admin</Tag> : "—",
-    },
+    { title: "S.No.", width: 65, render: (_, __, index) => (currentPage - 1) * pageSize + index + 1 },
+    { title: "Name", dataIndex: "name", sorter: (a, b) => a.name.localeCompare(b.name) },
+    { title: "Short Name", dataIndex: "shortName", width: 130, render: (v) => v || "—" },
     {
       title: "Status",
       dataIndex: "isActive",
       width: 110,
       sorter: (a, b) => Number(b.isActive) - Number(a.isActive),
       render: (isActive, record) =>
-        can("role.activate") ? (
-          <Tag
-            color={isActive ? "success" : "default"}
-            style={{ cursor: "pointer" }}
-            onClick={() => handleToggle(record)}
-          >
+        can("exam-scope.activate") ? (
+          <Tag color={isActive ? "success" : "default"} style={{ cursor: "pointer" }} onClick={() => handleToggle(record)}>
             {isActive ? "Active" : "Inactive"}
           </Tag>
         ) : (
-          <Tag color={isActive ? "success" : "default"}>
-            {isActive ? "Active" : "Inactive"}
-          </Tag>
+          <Tag color={isActive ? "success" : "default"}>{isActive ? "Active" : "Inactive"}</Tag>
         ),
     },
     {
@@ -207,41 +180,19 @@ export default function RolesList() {
       width: 90,
       align: "center",
       render: (_, record) => (
-        <Space>
-          {can("role.update") && (
-            <Tooltip title="Edit">
-              <Button
-                size="small"
-                icon={<EditOutlined />}
-                onClick={() => openEditModal(record)}
-              />
-            </Tooltip>
-          )}
-          {can("role-permission.read-all") && (
-            <Tooltip title="Manage Permissions">
-              <Button
-                size="small"
-                icon={<KeyOutlined />}
-                onClick={() => navigate(`/role-permissions?roleId=${record.id}`)}
-              />
-            </Tooltip>
-          )}
-        </Space>
+        can("exam-scope.update") && (
+          <Tooltip title="Edit">
+            <Button size="small" icon={<EditOutlined />} onClick={() => openEditModal(record)} />
+          </Tooltip>
+        )
       ),
     },
   ];
 
   return (
-    <DashboardLayout onAdd={can("role.create") ? openAddModal : undefined}>
+    <DashboardLayout onAdd={can("exam-scope.create") ? openAddModal : undefined}>
       {error && (
-        <Alert
-          message={error}
-          type="error"
-          showIcon
-          closable
-          onClose={() => setError("")}
-          style={{ marginBottom: 16 }}
-        />
+        <Alert message={error} type="error" showIcon closable onClose={() => setError("")} style={{ marginBottom: 16 }} />
       )}
 
       <PageCard>
@@ -252,7 +203,7 @@ export default function RolesList() {
             options={searchableColumns}
             value={searchBy}
             onChange={(val) => setSearchBy(val ?? null)}
-            style={{ width: "100%" }}
+            style={{ width: "auto" }}
           />
           <Input
             placeholder="Search..."
@@ -292,7 +243,6 @@ export default function RolesList() {
                 Showing {startEntry}–{endEntry} of {filtered.length} Entries
               </span>
             </div>
-
             <Pagination
               current={currentPage}
               pageSize={pageSize}
@@ -307,7 +257,7 @@ export default function RolesList() {
       </PageCard>
 
       <Modal
-        title={editingRecord ? "Edit Role" : "Add Role"}
+        title={editingRecord ? "Edit Exam Scope" : "Add Exam Scope"}
         open={modalOpen}
         onCancel={() => { setModalOpen(false); form.resetFields(); }}
         onOk={() => form.submit()}
@@ -315,30 +265,35 @@ export default function RolesList() {
         confirmLoading={modalLoading}
         destroyOnHidden
         centered
+        width={560}
       >
-        <Form
-          form={form}
-          layout="vertical"
-          onFinish={handleModalFinish}
-          requiredMark={false}
-          style={{ marginTop: 16 }}
-        >
-          <Form.Item
-            name="name"
-            label="Name"
-            rules={[
-              { required: true, message: "Please enter a name." },
-              { max: 100, message: "Maximum 100 characters." },
-            ]}
-          >
-            <Input placeholder="Role name" />
-          </Form.Item>
-          <Form.Item name="description" label="Description">
-            <Input placeholder="Brief description (optional)" />
-          </Form.Item>
-          <Form.Item name="isSuperAdmin" valuePropName="checked">
-            <Checkbox>Super Admin (bypasses all permission checks)</Checkbox>
-          </Form.Item>
+        <Form form={form} layout="vertical" onFinish={handleModalFinish} requiredMark={false} style={{ marginTop: 16 }}>
+          <Space size={16} align="start" style={{ width: "100%" }}>
+            <Form.Item
+              name="name"
+              label="Name"
+              style={{ flex: 2 }}
+              rules={[
+                { required: true, message: "Please enter the scope's name." },
+                { max: 100, message: "Maximum 100 characters." },
+              ]}
+            >
+              <Input placeholder="e.g. Internal Exams" />
+            </Form.Item>
+
+            <Form.Item
+              name="shortName"
+              label="Short Name"
+              style={{ flex: 1 }}
+              rules={[{ max: 30, message: "Maximum 30 characters." }]}
+            >
+              <Input placeholder="e.g. Internal" />
+            </Form.Item>
+
+            <Form.Item name="displayOrder" label="Display Order" style={{ flex: 1 }}>
+              <InputNumber min={0} style={{ width: "100%" }} />
+            </Form.Item>
+          </Space>
         </Form>
       </Modal>
     </DashboardLayout>

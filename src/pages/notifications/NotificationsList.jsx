@@ -1,8 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
 import {
   Table, Input, Select, Button, Tag, Alert, Space, Tooltip,
-  Pagination, Modal, Form, Descriptions, Tabs,
+  Pagination, Modal, Form, Descriptions, Tabs, Typography,
 } from "antd";
+
+const { Text } = Typography;
 import { EditOutlined, EyeOutlined, SendOutlined, DownloadOutlined, StopOutlined, CheckCircleOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import DashboardLayout from "../../layouts/DashboardLayout";
@@ -258,7 +260,17 @@ export default function NotificationsList() {
       title: "Recipients",
       width: 110,
       align: "center",
-      render: (_, r) => r._count?.recipients ?? 0,
+      // A scheduled automatic notification has none yet — its audience is
+      // resolved on the send date, so whoever holds the role then receives
+      // it. Showing 0 would read as "this will reach nobody".
+      render: (_, r) =>
+        r.status === "scheduled" ? (
+          <Tooltip title="Resolved when this sends, from whoever holds the template's audience at that moment">
+            <Text type="secondary">On send</Text>
+          </Tooltip>
+        ) : (
+          (r._count?.recipients ?? 0)
+        ),
     },
     {
       title: "Status",
@@ -405,7 +417,7 @@ export default function NotificationsList() {
         onOk={() => form.submit()}
         okText={editingRecord ? "Save" : "Create Draft"}
         confirmLoading={modalLoading}
-        destroyOnClose
+        destroyOnHidden
         centered
         width={720}
       >
@@ -472,6 +484,17 @@ export default function NotificationsList() {
                 </>
               )}
             </Descriptions>
+
+            {/* A scheduled notification has no recipients yet, so the read
+                report below would look like nobody is getting it. */}
+            {detailsRecord.status === "scheduled" && (
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginTop: 16 }}
+                message="Recipients are worked out when this sends, from whoever holds the template's audience at that moment — not from who holds it today."
+              />
+            )}
 
             <Tabs
               size="small"
