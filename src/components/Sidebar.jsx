@@ -26,6 +26,11 @@ import {
   ContactsOutlined,
   BellOutlined,
   NotificationOutlined,
+  PartitionOutlined,
+  CheckSquareOutlined,
+  ProfileOutlined,
+  AppstoreOutlined,
+  OrderedListOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -70,6 +75,9 @@ const navItems = [
       { key: '/employees',          icon: <ContactsOutlined />,    label: 'Employees',          permission: 'employee.read-all' },
       { key: '/students',           icon: <UserOutlined />,        label: 'Students',           permission: 'student.read-all' },
       { key: '/notification-templates', icon: <NotificationOutlined />, label: 'Notification Templates', permission: 'notification-template.read-all' },
+      { key: '/workflows',          icon: <PartitionOutlined />,   label: 'Workflows',          permission: 'workflow.read-all' },
+      { key: '/activities',         icon: <AppstoreOutlined />,    label: 'Activities',         permission: 'activity.read-all' },
+      { key: '/task-templates',     icon: <OrderedListOutlined />, label: 'Task Templates',     permission: 'task-template.read-all' },
     ],
   },
     {
@@ -82,11 +90,13 @@ const navItems = [
       { key: '/events',             icon: <CalendarOutlined />,    label: 'Events',             permission: ['event.read-all', 'event.read-departmental'] },
       { key: '/moderation-meetings', icon: <TeamOutlined />,       label: 'Moderation Meetings', permission: ['moderation-meeting.read-all', 'moderation-meeting.read-departmental'] },
       { key: '/notifications',     icon: <NotificationOutlined />, label: 'Notifications',       permission: 'notification.read-all' },
+      { key: '/tasks',             icon: <ProfileOutlined />,     label: 'Tasks',               permission: 'task.read-all' },
     ],
   },
   { key: '/datesheet',          icon: <ScheduleOutlined />,    label: 'Exam Datesheet',          permission: ['event.read-all', 'event.read-departmental'] },
   { key: '/moderation-meetings-calendar', icon: <ScheduleOutlined />, label: 'Moderation Calendar', permission: ['moderation-meeting.read-all', 'moderation-meeting.read-departmental'] },
   { key: '/my-notifications',  icon: <BellOutlined />,        label: 'My Notifications' },
+  { key: '/my-tasks',          icon: <CheckSquareOutlined />, label: 'My Tasks' },
   { key: '/system-settings',   icon: <SettingOutlined />,     label: 'System Settings',     permission: 'system-settings.read' },
 ];
 

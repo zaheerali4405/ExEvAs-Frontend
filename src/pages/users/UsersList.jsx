@@ -61,6 +61,7 @@ export default function UsersList() {
   const [error, setError] = useState("");
   const [searchBy, setSearchBy] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
+  const [userTypes, setUserTypes] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [modalOpen, setModalOpen] = useState(false);
@@ -84,10 +85,13 @@ export default function UsersList() {
 
   useEffect(() => { fetchUsers(); }, []);
 
+  // The user type filter narrows the list first — no types chosen means all of
+  // them — and the search then runs over what is left.
   const filtered = useMemo(() => {
-    if (!searchTerm.trim()) return users;
+    const byType = userTypes.length === 0 ? users : users.filter((u) => userTypes.includes(u.userType));
+    if (!searchTerm.trim()) return byType;
     const term = searchTerm.toLowerCase();
-    return users.filter((item) => {
+    return byType.filter((item) => {
       if (!searchBy) {
         return searchableColumns.some((col) =>
           String(getFieldValue(item, col.value)).toLowerCase().includes(term)
@@ -95,9 +99,9 @@ export default function UsersList() {
       }
       return String(getFieldValue(item, searchBy)).toLowerCase().includes(term);
     });
-  }, [users, searchBy, searchTerm]);
+  }, [users, searchBy, searchTerm, userTypes]);
 
-  useEffect(() => { setCurrentPage(1); }, [searchTerm, searchBy, pageSize]);
+  useEffect(() => { setCurrentPage(1); }, [searchTerm, searchBy, pageSize, userTypes]);
 
   const displayName = (user) => user.username || user.email;
 
@@ -289,6 +293,16 @@ export default function UsersList() {
 
       <PageCard>
         <div className="list-toolbar">
+          <Select
+            mode="multiple"
+            placeholder="All user types"
+            allowClear
+            options={USER_TYPE_OPTIONS}
+            value={userTypes}
+            onChange={setUserTypes}
+            maxTagCount="responsive"
+            style={{ width: "100%" }}
+          />
           <Select
             placeholder="Search by"
             allowClear

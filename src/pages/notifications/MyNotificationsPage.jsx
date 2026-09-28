@@ -5,6 +5,7 @@ import dayjs from "dayjs";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import PageCard from "../../components/PageCard";
 import { getMyNotifications, markNotificationRead } from "../../api/notificationsApi";
+import TaskUpdateModal from "./TaskUpdateModal";
 
 const { Text } = Typography;
 
@@ -31,6 +32,7 @@ export default function MyNotificationsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState("all");
+  const [openDeliveryId, setOpenDeliveryId] = useState(null);
   const itemRefs = useRef(new Map());
 
   const load = async () => {
@@ -73,6 +75,16 @@ export default function MyNotificationsPage() {
     }
   };
 
+  // A task status update opens in its own window, where the reader can accept
+  // it, forward it or re-assign the task. Opening it counts as reading it.
+  const isTaskUpdate = (item) =>
+    item.notification.category === "task_update" && !!item.notification.taskUpdateDeliveryId;
+
+  const openTaskUpdate = (item) => {
+    setOpenDeliveryId(item.notification.taskUpdateDeliveryId);
+    if (!item.isRead) handleMarkRead(item);
+  };
+
   return (
     <DashboardLayout>
       {error && (
@@ -110,15 +122,23 @@ export default function MyNotificationsPage() {
                   borderRadius: 6,
                   marginBottom: 4,
                 }}
-                actions={[
-                  item.isRead ? (
-                    <Tag color="success">Read</Tag>
-                  ) : (
-                    <Button size="small" onClick={() => handleMarkRead(item)}>
-                      Mark As Read
-                    </Button>
-                  ),
-                ]}
+                actions={
+                  isTaskUpdate(item)
+                    ? [
+                        <Button key="open" size="small" type="primary" onClick={() => openTaskUpdate(item)}>
+                          Open
+                        </Button>,
+                      ]
+                    : [
+                        item.isRead ? (
+                          <Tag color="success">Read</Tag>
+                        ) : (
+                          <Button size="small" onClick={() => handleMarkRead(item)}>
+                            Mark As Read
+                          </Button>
+                        ),
+                      ]
+                }
               >
                 <List.Item.Meta
                   avatar={<Badge dot={!item.isRead} offset={[-2, 2]} color="#1AB394" />}
@@ -129,7 +149,7 @@ export default function MyNotificationsPage() {
                   }
                   description={
                     <div>
-                      <div>{item.notification.message}</div>
+                      <div style={{ whiteSpace: "pre-line" }}>{item.notification.message}</div>
                       <Text type="secondary" style={{ fontSize: 12 }}>
                         {receivedReadLabel(item)}
                       </Text>
@@ -141,6 +161,13 @@ export default function MyNotificationsPage() {
           }}
         />
       </PageCard>
+
+      <TaskUpdateModal
+        deliveryId={openDeliveryId}
+        open={!!openDeliveryId}
+        onClose={() => setOpenDeliveryId(null)}
+        onActed={load}
+      />
     </DashboardLayout>
   );
 }

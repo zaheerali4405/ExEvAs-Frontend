@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Login from "./pages/auth/Login";
@@ -45,6 +45,18 @@ import CoursePapersList from './pages/course-papers/CoursePapersList';
 import NotificationsList from './pages/notifications/NotificationsList';
 import MyNotificationsPage from './pages/notifications/MyNotificationsPage';
 import NotificationTemplatesList from './pages/notification-templates/NotificationTemplatesList';
+import WorkflowsList from './pages/workflows/WorkflowsList';
+import ActivitiesList from './pages/activities/ActivitiesList';
+import TaskTemplatesList from './pages/task-templates/TaskTemplatesList';
+import MyTasksPage from './pages/tasks/MyTasksPage';
+import TasksPage from './pages/tasks/TasksPage';
+
+// A workflow's templates used to have a page of their own; old links land on
+// the Task Templates list filtered to that workflow instead.
+function WorkflowTemplatesRedirect() {
+  const { id } = useParams();
+  return <Navigate to={`/task-templates?workflowId=${id}`} replace />;
+}
 
 function App() {
   return (
@@ -337,6 +349,31 @@ function App() {
             }
           />
           <Route
+            path="/workflows"
+            element={
+              <ProtectedRoute permission="workflow.read-all">
+                <WorkflowsList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/activities"
+            element={
+              <ProtectedRoute permission="activity.read-all">
+                <ActivitiesList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/task-templates"
+            element={
+              <ProtectedRoute permission="task-template.read-all">
+                <TaskTemplatesList />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/workflows/:id/task-templates" element={<WorkflowTemplatesRedirect />} />
+          <Route
             path="/notifications"
             element={
               <ProtectedRoute permission="notification.read-all">
@@ -349,6 +386,22 @@ function App() {
             element={
               <ProtectedRoute>
                 <MyNotificationsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/tasks"
+            element={
+              <ProtectedRoute permission="task.read-all">
+                <TasksPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/my-tasks"
+            element={
+              <ProtectedRoute>
+                <MyTasksPage />
               </ProtectedRoute>
             }
           />

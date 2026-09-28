@@ -49,8 +49,13 @@ const routeConfig = {
   '/settings':         { title: 'Settings',          addPath: null },
   '/system-settings':  { title: 'System Settings',   addPath: null },
   '/notification-templates': { title: 'Notification Templates', addPath: '/notification-templates/add' },
+  '/workflows':        { title: 'Workflows',         addPath: '/workflows/add' },
+  '/activities':       { title: 'Activities',        addPath: '/activities/add' },
+  '/task-templates':   { title: 'Task Templates',    addPath: '/task-templates/add' },
   '/notifications':    { title: 'Notifications',     addPath: '/notifications/add' },
   '/my-notifications': { title: 'My Notifications',  addPath: null },
+  '/my-tasks':         { title: 'My Tasks',          addPath: null },
+  '/tasks':            { title: 'Tasks',             addPath: '/tasks/add' },
 };
 
 const segmentLabels = {
@@ -85,8 +90,13 @@ const segmentLabels = {
   settings:           'Settings',
   'system-settings':  'System Settings',
   'notification-templates': 'Notification Templates',
+  workflows:          'Workflows',
+  activities:         'Activities',
+  'task-templates':   'Task Templates',
   notifications:      'Notifications',
   'my-notifications': 'My Notifications',
+  'my-tasks':         'My Tasks',
+  tasks:              'Tasks',
   'role-permissions':  'Role Permissions',
   'designation-roles': 'Designation Roles',
   'user-roles':         'User Roles',

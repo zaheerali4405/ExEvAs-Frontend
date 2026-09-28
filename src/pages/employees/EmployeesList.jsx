@@ -28,7 +28,9 @@ import {
   setEmployeeStatus,
 } from "../../api/employeesApi";
 import { getDepartments } from "../../api/departmentsApi";
+import { getDesignations } from "../../api/designationsApi";
 import { exportToExcel } from "../../utils/exportExcel";
+import { infoTip } from "../../utils/formTooltip";
 import { useAuth } from "../../context/AuthContext";
 
 const { Text } = Typography;
@@ -76,6 +78,7 @@ export default function EmployeesList() {
   const { can } = useAuth();
   const [employees, setEmployees] = useState([]);
   const [departments, setDepartments] = useState([]);
+  const [designations, setDesignations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [searchBy, setSearchBy] = useState(null);
@@ -106,6 +109,15 @@ export default function EmployeesList() {
           setDepartments(data);
         } catch {
           // Non-fatal: the department dropdown just stays empty.
+        }
+      }
+
+      if (can("designation.read-all")) {
+        try {
+          const { data } = await getDesignations();
+          setDesignations(data);
+        } catch {
+          // Non-fatal: the designation dropdown just stays empty.
         }
       }
     })();
@@ -318,6 +330,15 @@ export default function EmployeesList() {
         .filter((d) => d.isActive)
         .map((d) => ({ value: d.id, label: d.name })),
     [departments],
+  );
+
+  const designationOptions = useMemo(
+    () =>
+      designations
+        .filter((d) => d.isActive)
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((d) => ({ value: d.id, label: d.name })),
+    [designations],
   );
 
   return (
@@ -567,6 +588,26 @@ export default function EmployeesList() {
                     ]}
                   >
                     <Input.Password placeholder="Password" />
+                  </Form.Item>
+                </Col>
+              </Row>
+              <Row gutter={16}>
+                <Col span={24}>
+                  <Form.Item
+                    name="designationIds"
+                    label="Designations"
+                    tooltip={infoTip(
+                      "The posts this employee holds. The first one becomes their main designation, and each one gives them the roles mapped to it on the Designation Roles page. Can be left empty and assigned later on the User Designations page."
+                    )}
+                  >
+                    <Select
+                      mode="multiple"
+                      placeholder="Select designations (optional)"
+                      options={designationOptions}
+                      showSearch
+                      optionFilterProp="label"
+                      maxTagCount="responsive"
+                    />
                   </Form.Item>
                 </Col>
               </Row>
