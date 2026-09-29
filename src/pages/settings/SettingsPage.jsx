@@ -4,8 +4,8 @@ import { SafetyOutlined, BgColorsOutlined } from "@ant-design/icons";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import PageCard from "../../components/PageCard";
 import { toggleTwoFa } from "../../api/authApi";
-import { useAuth } from "../../context/AuthContext";
-import { useTheme } from "../../context/ThemeContext";
+import { useAuth } from "../../context/useAuth";
+import { useTheme } from "../../context/useTheme";
 
 const { Title, Text } = Typography;
 

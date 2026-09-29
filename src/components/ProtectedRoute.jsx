@@ -1,6 +1,6 @@
 import { Spin } from 'antd';
 import { Navigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
 import Forbidden from '../pages/Forbidden';
 
 export default function ProtectedRoute({ children, permission }) {

@@ -15,7 +15,8 @@ import { getExamTypes } from "../../api/examTypesApi";
 import { getExamCategories } from "../../api/examCategoriesApi";
 import { getInstitutes } from "../../api/institutesApi";
 import { exportToExcel } from "../../utils/exportExcel";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/useAuth";
+import { loadOptions } from "../../utils/loadOptions";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -94,74 +95,21 @@ export default function CoursePapersList() {
   const selectedExamCategoryIds = Form.useWatch("examCategoryIds", form) || [];
 
   useEffect(() => {
-    (async () => {
-      setLoading(true);
-      setError("");
-      try {
-        const { data } = await getCoursePapers();
-        setCoursePapers(data);
-      } catch (err) {
-        setError(err.response?.data?.message || "Could not load course/papers.");
-      } finally {
-        setLoading(false);
-      }
-
-      if (can("program.read-all")) {
-        try {
-          const { data } = await getPrograms();
-          setPrograms(data);
-        } catch {
-          // Non-fatal: the program dropdown just stays empty.
-        }
-      }
-
-      if (can("degree-level.read-all")) {
-        try {
-          const { data } = await getDegreeLevels();
-          setDegreeLevels(data);
-        } catch {
-          // Non-fatal: the degree level dropdown just stays empty.
-        }
-      }
-
-      if (can("subject.read-all")) {
-        try {
-          const { data } = await getSubjects();
-          setSubjects(data);
-        } catch {
-          // Non-fatal: the subjects dropdown just stays empty.
-        }
-      }
-
-      if (can("exam-type.read-all")) {
-        try {
-          const { data } = await getExamTypes();
-          setExamTypes(data);
-        } catch {
-          // Non-fatal: the exam types dropdown just stays empty.
-        }
-      }
-
-      if (can("exam-category.read-all")) {
-        try {
-          const { data } = await getExamCategories();
-          setExamCategories(data);
-        } catch {
-          // Non-fatal: the exam categories dropdown just stays empty.
-        }
-      }
-
-      if (can("institute.read-all")) {
-        try {
-          const { data } = await getInstitutes();
-          setInstitutes(data);
-        } catch {
-          // Non-fatal: both the institute dropdown and subject-filtering just fall back to empty/exact match.
-        }
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    let ignore = false;
+    const isStale = () => ignore;
+    getCoursePapers()
+      .then(({ data }) => { if (!ignore) setCoursePapers(data); })
+      .catch((err) => { if (!ignore) setError(err.response?.data?.message || "Could not load course/papers."); })
+      .finally(() => { if (!ignore) setLoading(false); });
+    // Without institutes, subject filtering falls back to an exact match.
+    loadOptions(can("program.read-all"), getPrograms, setPrograms, isStale);
+    loadOptions(can("degree-level.read-all"), getDegreeLevels, setDegreeLevels, isStale);
+    loadOptions(can("subject.read-all"), getSubjects, setSubjects, isStale);
+    loadOptions(can("exam-type.read-all"), getExamTypes, setExamTypes, isStale);
+    loadOptions(can("exam-category.read-all"), getExamCategories, setExamCategories, isStale);
+    loadOptions(can("institute.read-all"), getInstitutes, setInstitutes, isStale);
+    return () => { ignore = true; };
+  }, [can]);
 
   const filtered = useMemo(() => {
     if (!searchTerm.trim()) return coursePapers;
@@ -174,8 +122,6 @@ export default function CoursePapersList() {
       return String(getFieldValue(item, searchBy)).toLowerCase().includes(term);
     });
   }, [coursePapers, searchBy, searchTerm]);
-
-  useEffect(() => { setCurrentPage(1); }, [searchTerm, searchBy, pageSize]);
 
   const handleToggle = (record) => {
     const activate = !record.isActive;
@@ -405,14 +351,14 @@ export default function CoursePapersList() {
             allowClear
             options={searchableColumns}
             value={searchBy}
-            onChange={(val) => setSearchBy(val ?? null)}
+            onChange={(val) => { setSearchBy(val ?? null); setCurrentPage(1); }}
             style={{ width: "100%" }}
           />
           <Input
             placeholder="Search..."
             allowClear
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
             style={{ width: "auto" }}
           />
           <Button icon={<DownloadOutlined />} onClick={handleExport} style={{ width: "100%" }}>
@@ -437,7 +383,7 @@ export default function CoursePapersList() {
                 <Select
                   value={pageSize}
                   options={PAGE_SIZE_OPTIONS.map((n) => ({ value: n, label: `${n}` }))}
-                  onChange={(val) => setPageSize(val)}
+                  onChange={(val) => { setPageSize(val); setCurrentPage(1); }}
                   style={{ cursor: "pointer" }}
                 />
                 <span style={{ fontSize: 14, color: "#595959" }}>Entries</span>

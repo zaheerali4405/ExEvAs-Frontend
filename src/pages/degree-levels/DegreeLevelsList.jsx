@@ -8,7 +8,7 @@ import DashboardLayout from "../../layouts/DashboardLayout";
 import PageCard from "../../components/PageCard";
 import { getDegreeLevels, createDegreeLevel, updateDegreeLevel, setDegreeLevelStatus } from "../../api/degreeLevelsApi";
 import { exportToExcel } from "../../utils/exportExcel";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/useAuth";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -81,8 +81,6 @@ export default function DegreeLevelsList() {
       return String(getFieldValue(item, searchBy)).toLowerCase().includes(term);
     });
   }, [degreeLevels, searchBy, searchTerm]);
-
-  useEffect(() => { setCurrentPage(1); }, [searchTerm, searchBy, pageSize]);
 
   const handleToggle = (record) => {
     const activate = !record.isActive;
@@ -240,14 +238,14 @@ export default function DegreeLevelsList() {
             allowClear
             options={searchableColumns}
             value={searchBy}
-            onChange={(val) => setSearchBy(val ?? null)}
+            onChange={(val) => { setSearchBy(val ?? null); setCurrentPage(1); }}
             style={{ width: "100%" }}
           />
           <Input
             placeholder="Search..."
             allowClear
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
             style={{ width: "auto" }}
           />
           <Button icon={<DownloadOutlined />} onClick={handleExport} style={{ width: "100%" }}>
@@ -272,7 +270,7 @@ export default function DegreeLevelsList() {
                 <Select
                   value={pageSize}
                   options={PAGE_SIZE_OPTIONS.map((n) => ({ value: n, label: `${n}` }))}
-                  onChange={(val) => setPageSize(val)}
+                  onChange={(val) => { setPageSize(val); setCurrentPage(1); }}
                   style={{ cursor: "pointer" }}
                 />
                 <span style={{ fontSize: 14, color: "#595959" }}>Entries</span>

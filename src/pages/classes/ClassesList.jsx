@@ -11,7 +11,8 @@ import { getPrograms } from "../../api/programsApi";
 import { getDegreeLevels } from "../../api/degreeLevelsApi";
 import { getSessions } from "../../api/sessionsApi";
 import { exportToExcel } from "../../utils/exportExcel";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/useAuth";
+import { loadOptions } from "../../utils/loadOptions";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -63,47 +64,17 @@ export default function ClassesList() {
   const [form] = Form.useForm();
 
   useEffect(() => {
-    (async () => {
-      setLoading(true);
-      setError("");
-      try {
-        const { data } = await getClasses();
-        setClasses(data);
-      } catch (err) {
-        setError(err.response?.data?.message || "Could not load classes.");
-      } finally {
-        setLoading(false);
-      }
-
-      if (can("program.read-all")) {
-        try {
-          const { data } = await getPrograms();
-          setPrograms(data);
-        } catch {
-          // Non-fatal: the program dropdown just stays empty.
-        }
-      }
-
-      if (can("degree-level.read-all")) {
-        try {
-          const { data } = await getDegreeLevels();
-          setDegreeLevels(data);
-        } catch {
-          // Non-fatal: the degree level dropdown just stays empty.
-        }
-      }
-
-      if (can("session.read-all")) {
-        try {
-          const { data } = await getSessions();
-          setSessions(data);
-        } catch {
-          // Non-fatal: the session dropdown just stays empty.
-        }
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    let ignore = false;
+    const isStale = () => ignore;
+    getClasses()
+      .then(({ data }) => { if (!ignore) setClasses(data); })
+      .catch((err) => { if (!ignore) setError(err.response?.data?.message || "Could not load classes."); })
+      .finally(() => { if (!ignore) setLoading(false); });
+    loadOptions(can("program.read-all"), getPrograms, setPrograms, isStale);
+    loadOptions(can("degree-level.read-all"), getDegreeLevels, setDegreeLevels, isStale);
+    loadOptions(can("session.read-all"), getSessions, setSessions, isStale);
+    return () => { ignore = true; };
+  }, [can]);
 
   const filtered = useMemo(() => {
     if (!searchTerm.trim()) return classes;
@@ -116,8 +87,6 @@ export default function ClassesList() {
       return String(getFieldValue(item, searchBy)).toLowerCase().includes(term);
     });
   }, [classes, searchBy, searchTerm]);
-
-  useEffect(() => { setCurrentPage(1); }, [searchTerm, searchBy, pageSize]);
 
   const handleToggle = (record) => {
     const activate = !record.isActive;
@@ -300,14 +269,14 @@ export default function ClassesList() {
             allowClear
             options={searchableColumns}
             value={searchBy}
-            onChange={(val) => setSearchBy(val ?? null)}
+            onChange={(val) => { setSearchBy(val ?? null); setCurrentPage(1); }}
             style={{ width: "100%" }}
           />
           <Input
             placeholder="Search..."
             allowClear
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
             style={{ width: "auto" }}
           />
           <Button icon={<DownloadOutlined />} onClick={handleExport} style={{ width: "100%" }}>
@@ -332,7 +301,7 @@ export default function ClassesList() {
                 <Select
                   value={pageSize}
                   options={PAGE_SIZE_OPTIONS.map((n) => ({ value: n, label: `${n}` }))}
-                  onChange={(val) => setPageSize(val)}
+                  onChange={(val) => { setPageSize(val); setCurrentPage(1); }}
                   style={{ cursor: "pointer" }}
                 />
                 <span style={{ fontSize: 14, color: "#595959" }}>Entries</span>

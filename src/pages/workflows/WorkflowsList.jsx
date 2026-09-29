@@ -12,7 +12,8 @@ import { getExamTypes } from "../../api/examTypesApi";
 import { getExamCategories } from "../../api/examCategoriesApi";
 import { exportToExcel } from "../../utils/exportExcel";
 import { infoTip } from "../../utils/formTooltip";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/useAuth";
+import { loadOptions } from "../../utils/loadOptions";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -83,26 +84,16 @@ export default function WorkflowsList() {
   const selectedExamCategoryIds = Form.useWatch("examCategoryIds", form) || [];
 
   useEffect(() => {
-    (async () => {
-      setLoading(true);
-      setError("");
-      try {
-        const { data } = await getWorkflows();
-        setWorkflows(data);
-      } catch (err) {
-        setError(err.response?.data?.message || "Could not load workflows.");
-      } finally {
-        setLoading(false);
-      }
-      if (can("exam-type.read-all")) {
-        try { const { data } = await getExamTypes(); setExamTypes(data); } catch { /* dropdown stays empty */ }
-      }
-      if (can("exam-category.read-all")) {
-        try { const { data } = await getExamCategories(); setExamCategories(data); } catch { /* dropdown stays empty */ }
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    let ignore = false;
+    const isStale = () => ignore;
+    getWorkflows()
+      .then(({ data }) => { if (!ignore) setWorkflows(data); })
+      .catch((err) => { if (!ignore) setError(err.response?.data?.message || "Could not load workflows."); })
+      .finally(() => { if (!ignore) setLoading(false); });
+    loadOptions(can("exam-type.read-all"), getExamTypes, setExamTypes, isStale);
+    loadOptions(can("exam-category.read-all"), getExamCategories, setExamCategories, isStale);
+    return () => { ignore = true; };
+  }, [can]);
 
   const examTypeOptions = useMemo(
     () => examTypes.filter((e) => e.isActive).map((e) => ({ value: e.id, label: e.fullName })),
@@ -127,8 +118,6 @@ export default function WorkflowsList() {
       return String(getFieldValue(item, searchBy)).toLowerCase().includes(term);
     });
   }, [workflows, searchBy, searchTerm]);
-
-  useEffect(() => { setCurrentPage(1); }, [searchTerm, searchBy, pageSize]);
 
   const handleToggle = (record) => {
     const activate = !record.isActive;
@@ -324,14 +313,14 @@ export default function WorkflowsList() {
             allowClear
             options={searchableColumns}
             value={searchBy}
-            onChange={(val) => setSearchBy(val ?? null)}
+            onChange={(val) => { setSearchBy(val ?? null); setCurrentPage(1); }}
             style={{ width: "100%" }}
           />
           <Input
             placeholder="Search..."
             allowClear
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
             style={{ width: "auto" }}
           />
           <Button icon={<DownloadOutlined />} onClick={handleExport} style={{ width: "100%" }}>
@@ -356,7 +345,7 @@ export default function WorkflowsList() {
                 <Select
                   value={pageSize}
                   options={PAGE_SIZE_OPTIONS.map((n) => ({ value: n, label: `${n}` }))}
-                  onChange={(val) => setPageSize(val)}
+                  onChange={(val) => { setPageSize(val); setCurrentPage(1); }}
                   style={{ cursor: "pointer" }}
                 />
                 <span style={{ fontSize: 14, color: "#595959" }}>Entries</span>

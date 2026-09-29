@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Table, Select, Alert, Checkbox, Tag, Typography, Spin } from "antd";
 import DashboardLayout from "../../layouts/DashboardLayout";
@@ -10,86 +10,92 @@ import {
 } from "../../api/designationRolesApi";
 import { getDesignations } from "../../api/designationsApi";
 import { getRoles } from "../../api/rolesApi";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/useAuth";
 
 const { Text } = Typography;
 
+const NO_IDS = new Set();
+
 export default function DesignationRolesList() {
   const [searchParams] = useSearchParams();
+  const paramDesignationId = searchParams.get("designationId");
   const { can } = useAuth();
 
   const [designations, setDesignations] = useState([]);
   const [allRoles, setAllRoles] = useState([]);
-  const [assignedIds, setAssignedIds] = useState(new Set());
-  const [assignedRecords, setAssignedRecords] = useState([]);
+  // Tagged with the designation they were loaded for, so a stale set is
+  // never shown against a different selection and "still loading" can be
+  // read off the mismatch.
+  const [assigned, setAssigned] = useState({ designationId: null, ids: NO_IDS });
 
   const [selectedDesignationId, setSelectedDesignationId] = useState(null);
   const [loadingBase, setLoadingBase] = useState(true);
-  const [loadingAssigned, setLoadingAssigned] = useState(false);
   const [togglingIds, setTogglingIds] = useState(new Set());
   const [error, setError] = useState("");
 
-  // Load designations + all roles once
+  const assignedIds = assigned.designationId === selectedDesignationId ? assigned.ids : NO_IDS;
+  const loadingAssigned = !!selectedDesignationId && assigned.designationId !== selectedDesignationId;
+
+  // Load designations + all roles once, preselecting the one named in the URL
   useEffect(() => {
-    (async () => {
-      setLoadingBase(true);
-      try {
-        const [desRes, rolesRes] = await Promise.all([getDesignations(), getRoles()]);
+    let ignore = false;
+    Promise.all([getDesignations(), getRoles()])
+      .then(([desRes, rolesRes]) => {
+        if (ignore) return;
         setDesignations(desRes.data);
         setAllRoles(rolesRes.data);
-
-        const paramId = searchParams.get("designationId");
-        if (paramId) {
-          const match = desRes.data.find((d) => String(d.id) === String(paramId));
+        if (paramDesignationId) {
+          const match = desRes.data.find((d) => String(d.id) === String(paramDesignationId));
           if (match) setSelectedDesignationId(match.id);
         }
-      } catch {
-        setError("Could not load designations or roles.");
-      } finally {
-        setLoadingBase(false);
-      }
-    })();
-  }, []);
+      })
+      .catch(() => {
+        if (!ignore) setError("Could not load designations or roles.");
+      })
+      .finally(() => {
+        if (!ignore) setLoadingBase(false);
+      });
+    return () => { ignore = true; };
+  }, [paramDesignationId]);
 
   // Load assigned roles when designation changes
   useEffect(() => {
-    if (!selectedDesignationId) {
-      setAssignedIds(new Set());
-      setAssignedRecords([]);
-      return;
-    }
-    (async () => {
-      setLoadingAssigned(true);
-      setError("");
-      try {
-        const { data } = await getDesignationRoles(selectedDesignationId);
-        setAssignedRecords(data);
-        setAssignedIds(new Set(data.map((r) => r.roleId)));
-      } catch (err) {
+    if (!selectedDesignationId) return;
+    let ignore = false;
+    getDesignationRoles(selectedDesignationId)
+      .then(({ data }) => {
+        if (!ignore) setAssigned({ designationId: selectedDesignationId, ids: new Set(data.map((r) => r.roleId)) });
+      })
+      .catch((err) => {
+        if (ignore) return;
         setError(err.response?.data?.message || "Could not load assigned roles.");
-      } finally {
-        setLoadingAssigned(false);
-      }
-    })();
+        setAssigned({ designationId: selectedDesignationId, ids: NO_IDS });
+      });
+    return () => { ignore = true; };
   }, [selectedDesignationId]);
+
+  const handleDesignationChange = (val) => {
+    setError("");
+    setSelectedDesignationId(val ?? null);
+  };
 
   const handleToggle = async (roleId, checked) => {
     setTogglingIds((prev) => new Set(prev).add(roleId));
     setError("");
+    const designationId = selectedDesignationId;
     try {
       if (checked) {
-        const { data } = await assignRoleToDesignation(selectedDesignationId, roleId);
-        setAssignedRecords((prev) => [...prev, data]);
-        setAssignedIds((prev) => new Set(prev).add(roleId));
+        await assignRoleToDesignation(designationId, roleId);
       } else {
-        await unassignRoleFromDesignation(selectedDesignationId, roleId);
-        setAssignedRecords((prev) => prev.filter((r) => r.roleId !== roleId));
-        setAssignedIds((prev) => {
-          const next = new Set(prev);
-          next.delete(roleId);
-          return next;
-        });
+        await unassignRoleFromDesignation(designationId, roleId);
       }
+      setAssigned((prev) => {
+        if (prev.designationId !== designationId) return prev;
+        const ids = new Set(prev.ids);
+        if (checked) ids.add(roleId);
+        else ids.delete(roleId);
+        return { ...prev, ids };
+      });
     } catch (err) {
       setError(err.response?.data?.message || "Could not update role assignment.");
     } finally {
@@ -179,7 +185,7 @@ export default function DesignationRolesList() {
               loading={loadingBase}
               options={designations.map((d) => ({ value: d.id, label: d.name }))}
               value={selectedDesignationId}
-              onChange={(val) => setSelectedDesignationId(val ?? null)}
+              onChange={handleDesignationChange}
               style={{ width: "100%", maxWidth: 400 }}
               allowClear
               showSearch

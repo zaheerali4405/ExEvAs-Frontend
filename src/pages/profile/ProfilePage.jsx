@@ -3,7 +3,7 @@ import { UserOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import PageCard from "../../components/PageCard";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/useAuth";
 
 const { Title, Text } = Typography;
 const PRIMARY = "#1AB394";

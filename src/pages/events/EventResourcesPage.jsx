@@ -18,7 +18,8 @@ import { getVenues } from "../../api/venuesApi";
 import { getEquipment } from "../../api/equipmentApi";
 import { getDepartments } from "../../api/departmentsApi";
 import { getEmployees } from "../../api/employeesApi";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/useAuth";
+import { loadOptions } from "../../utils/loadOptions";
 
 const { Title, Text } = Typography;
 
@@ -127,89 +128,30 @@ export default function EventResourcesPage() {
   const canAssignStaff = can("event-staff.assign") && !pastLocked;
   const canUnassignStaff = can("event-staff.unassign") && !pastLocked;
 
+  // The pick-lists are gated on the assign permissions alone, not on the
+  // past-event lock: the lock needs the event, which is still loading here,
+  // and it only disables the assign controls.
   useEffect(() => {
-    (async () => {
-      setLoading(true);
-      setError("");
-      try {
-        const { data } = await getEvent(eventId);
-        setEvent(data);
-      } catch (err) {
-        setError(err.response?.data?.message || "Could not load event.");
-      } finally {
-        setLoading(false);
-      }
+    let ignore = false;
+    const isStale = () => ignore;
+    getEvent(eventId)
+      .then(({ data }) => { if (!ignore) setEvent(data); })
+      .catch((err) => { if (!ignore) setError(err.response?.data?.message || "Could not load event."); })
+      .finally(() => { if (!ignore) setLoading(false); });
 
-      if (canViewVenues) {
-        try {
-          const { data } = await getEventVenues(eventId);
-          setAssignedVenues(data);
-        } catch {
-          // Non-fatal
-        }
-      }
-      if (canAssignVenues) {
-        try {
-          const { data } = await getVenues();
-          setAllVenues(data);
-        } catch {
-          // Non-fatal
-        }
-      }
+    loadOptions(can("event-venue.read-all"), () => getEventVenues(eventId), setAssignedVenues, isStale);
+    loadOptions(can("event-venue.assign"), getVenues, setAllVenues, isStale);
 
-      if (canViewEquipment) {
-        try {
-          const { data } = await getEventEquipment(eventId);
-          setAssignedEquipment(data);
-        } catch {
-          // Non-fatal
-        }
-      }
-      if (canAssignEquipment) {
-        try {
-          const { data } = await getEquipment();
-          setAllEquipment(data);
-        } catch {
-          // Non-fatal
-        }
-      }
+    loadOptions(can("event-equipment.read-all"), () => getEventEquipment(eventId), setAssignedEquipment, isStale);
+    loadOptions(can("event-equipment.assign"), getEquipment, setAllEquipment, isStale);
 
-      if (canViewDepartments) {
-        try {
-          const { data } = await getEventDepartments(eventId);
-          setAssignedDepartments(data);
-        } catch {
-          // Non-fatal
-        }
-      }
-      if (canAssignDepartments || canAssignStaff) {
-        try {
-          const { data } = await getDepartments();
-          setAllDepartments(data);
-        } catch {
-          // Non-fatal
-        }
-      }
+    loadOptions(can("event-department.read-all"), () => getEventDepartments(eventId), setAssignedDepartments, isStale);
+    loadOptions(can("event-department.assign") || can("event-staff.assign"), getDepartments, setAllDepartments, isStale);
 
-      if (canViewStaff) {
-        try {
-          const { data } = await getEventStaff(eventId);
-          setAssignedStaff(data);
-        } catch {
-          // Non-fatal
-        }
-      }
-      if (canAssignStaff) {
-        try {
-          const { data } = await getEmployees();
-          setAllEmployees(data);
-        } catch {
-          // Non-fatal
-        }
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventId]);
+    loadOptions(can("event-staff.read-all"), () => getEventStaff(eventId), setAssignedStaff, isStale);
+    loadOptions(can("event-staff.assign"), getEmployees, setAllEmployees, isStale);
+    return () => { ignore = true; };
+  }, [eventId, can]);
 
   // How many venues one occurrence may hold comes from its (exam category,
   // exam scope) pair, resolved server-side and served on the event itself —

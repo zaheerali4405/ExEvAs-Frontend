@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {
   Button, Alert, Typography, Spin, Empty, Modal, Tag, Segmented, Table, Space,
-  Select, InputNumber, Form, Tooltip, DatePicker, TimePicker, Dropdown, Switch, Input, Badge,
+  Select, InputNumber, Tooltip, DatePicker, TimePicker, Dropdown, Switch, Input, Badge,
 } from "antd";
 import {
   LeftOutlined, RightOutlined, PlusOutlined, EditOutlined, DeleteOutlined, SaveOutlined, CloseOutlined,
@@ -17,16 +17,13 @@ import {
 import {
   getEventEquipment, assignEventEquipment, updateEventEquipment, unassignEventEquipment, getEventEquipmentAvailability,
 } from "../../api/eventEquipmentApi";
-import {
-  getEventStaff, assignEventStaff, updateEventStaff, unassignEventStaff, getEventStaffDutyLimits,
-} from "../../api/eventStaffApi";
+import { getEventStaff, getEventStaffDutyLimits } from "../../api/eventStaffApi";
 import { getEventDepartments } from "../../api/eventDepartmentsApi";
 import { getVenues } from "../../api/venuesApi";
 import { getEquipment } from "../../api/equipmentApi";
-import { getEmployees } from "../../api/employeesApi";
-import { getDepartments } from "../../api/departmentsApi";
 import { getSessions } from "../../api/sessionsApi";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/useAuth";
+import { loadOptions } from "../../utils/loadOptions";
 import EventFormModal from "../events/EventFormModal";
 import AddExamsModal from "./AddExamsModal";
 import VenueAllocationModal from "./VenueAllocationModal";
@@ -72,9 +69,6 @@ const DUTY_TYPE_OPTIONS = [
   { value: "janitorial",            label: "Janitorial" },
 ];
 const DUTY_TYPE_LABELS = Object.fromEntries(DUTY_TYPE_OPTIONS.map((o) => [o.value, o.label]));
-
-const employeeLabel = (e) =>
-  `${e.firstName}${e.lastName ? ` ${e.lastName}` : ""} (${e.department?.name ?? "—"})`;
 
 // A normal event.update/-time/-status/event-*.assign/unassign holder can
 // only act on today's or future-dated events — a past event requires
@@ -243,6 +237,16 @@ function buildMonthGrid(monthStart) {
   return weeks;
 }
 
+// The class (program + degree level) an event belongs to, as the search
+// filter's first dropdown keys it.
+const pairKeyOf = (e) => `${e.programId}-${e.degreeLevelId}`;
+
+const matchesFilter = (e, filter) => {
+  if (filter.pairs.length > 0 && !filter.pairs.includes(pairKeyOf(e))) return false;
+  if (filter.examTypeIds.length > 0 && !filter.examTypeIds.includes(e.examTypeId)) return false;
+  return true;
+};
+
 // Calendar shell for the Datesheet page. Event is Exam-only now — Moderation
 // Meeting was split into its own table/List page (see
 // [[project_moderation_meeting_split]] memory) — so this no longer scopes by
@@ -308,13 +312,10 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [reschedulingId, setReschedulingId] = useState(null);
 
-  // Assignment option lists (venues/equipment/employees/departments to pick
-  // from) — fetched lazily once, on first Details-modal open, same as
-  // EventResourcesPage.jsx.
+  // Assignment option lists (venues/equipment to pick from) — fetched lazily
+  // once, on first Details-modal open, same as EventResourcesPage.jsx.
   const [allVenues, setAllVenues] = useState([]);
   const [allEquipment, setAllEquipment] = useState([]);
-  const [allEmployees, setAllEmployees] = useState([]);
-  const [allDepartments, setAllDepartments] = useState([]);
   const [assignOptionsLoaded, setAssignOptionsLoaded] = useState(false);
 
   // The Date/Time row — same single-row inline-edit pattern as Venue below.
@@ -357,15 +358,6 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
   const [equipmentSaving, setEquipmentSaving] = useState(false);
   const [removingEquipmentId, setRemovingEquipmentId] = useState(null);
 
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState(null);
-  const [selectedDutyType, setSelectedDutyType] = useState(null);
-  // eslint-disable-next-line no-unused-vars -- kept for the commented-out staff assign form below
-  const [assigningStaff, setAssigningStaff] = useState(false);
-  // eslint-disable-next-line no-unused-vars -- kept for the commented-out staff table below
-  const [removingStaffEmployeeId, setRemovingStaffEmployeeId] = useState(null);
-  const [editingStaffRow, setEditingStaffRow] = useState(null);
-  const [staffModalLoading, setStaffModalLoading] = useState(false);
-  const [staffForm] = Form.useForm();
   // Per-duty-type min/max (from the event's exam type's ExamTypeDutyRule
   // rows) and how many are currently assigned — min is advisory only
   // (shown here), max is what the backend actually blocks against.
@@ -373,12 +365,35 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [addModalDate, setAddModalDate] = useState(null);
   const [bulkAddModalOpen, setBulkAddModalOpen] = useState(false);
+  // Bumped on every open and used as the modal's key, so each opening starts
+  // from fresh state instead of the modal resetting itself on open.
+  const [bulkAddOpenCount, setBulkAddOpenCount] = useState(0);
+  const openBulkAddModal = () => {
+    setBulkAddOpenCount((n) => n + 1);
+    setBulkAddModalOpen(true);
+  };
   const [venueAllocationDate, setVenueAllocationDate] = useState(null);
+  // Bumped on every open and used as the modal's key, so each opening starts
+  // from fresh state instead of the modal resetting itself on close.
+  const [venueAllocationOpenCount, setVenueAllocationOpenCount] = useState(0);
+  const openVenueAllocation = (day) => {
+    setVenueAllocationOpenCount((n) => n + 1);
+    setVenueAllocationDate(day);
+  };
   // Month view needs the width for its day grid, so both the Holding
-  // Area and the app sidebar start collapsed there (see the effect below
-  // and DashboardLayout's collapseSidebar). Every other view opens with
+  // Area and the app sidebar start collapsed there (see just below and
+  // DashboardLayout's collapseSidebar). Every other view opens with
   // the Holding Area showing, as before.
-  const [holdingAreaOpen, setHoldingAreaOpen] = useState(false);
+  const [holdingAreaOpen, setHoldingAreaOpen] = useState(viewMode !== "month");
+  // Collapse on entering month view, open on leaving it. Switching views is
+  // the only thing that moves it — a manual toggle while staying on the
+  // same view is left alone. Adjusted during render rather than in an
+  // effect, since the view changes from several places.
+  const [holdingAreaViewMode, setHoldingAreaViewMode] = useState(viewMode);
+  if (holdingAreaViewMode !== viewMode) {
+    setHoldingAreaViewMode(viewMode);
+    setHoldingAreaOpen(viewMode !== "month");
+  }
   const dayGridRef = useRef(null);
   const weekGridRef = useRef(null);
   const monthGridRef = useRef(null);
@@ -399,39 +414,17 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
     return () => ro.disconnect();
   }, [viewMode, loading]);
 
-  // Collapse on entering month view, open on leaving it. Switching views is
-  // the only thing that moves it — a manual toggle while staying on the
-  // same view is left alone.
   useEffect(() => {
-    setHoldingAreaOpen(viewMode !== "month");
-  }, [viewMode]);
-
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      setError("");
-      try {
-        const { data: eventsData } = await getEvents();
-        setAllEvents(eventsData);
-      } catch (err) {
-        setError(err.response?.data?.message || "Could not load events.");
-      } finally {
-        setLoading(false);
-      }
-
-      // Only used to identify the current session for a backwards search;
-      // a failure just drops that narrowing rather than breaking search.
-      if (can("session.read-all")) {
-        try {
-          const { data } = await getSessions();
-          setSessions(data);
-        } catch {
-          // Non-fatal — the jump then considers every session's past events.
-        }
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    let ignore = false;
+    getEvents()
+      .then(({ data }) => { if (!ignore) setAllEvents(data); })
+      .catch((err) => { if (!ignore) setError(err.response?.data?.message || "Could not load events."); })
+      .finally(() => { if (!ignore) setLoading(false); });
+    // Only used to identify the current session for a backwards search;
+    // without it the jump considers every session's past events.
+    loadOptions(can("session.read-all"), getSessions, setSessions, () => ignore);
+    return () => { ignore = true; };
+  }, [can]);
 
   // Filter options come from the events themselves rather than from the
   // lookup tables: an option that would match nothing is no use in a search,
@@ -449,8 +442,6 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
     [user]
   );
   const hasOwnDepartment = departmentScopeIds.size > 0;
-
-  const pairKeyOf = (e) => `${e.programId}-${e.degreeLevelId}`;
 
   const pairOptions = useMemo(() => {
     const byKey = new Map();
@@ -480,30 +471,26 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
   }, [allEvents, draftPairs]);
 
   // A picked exam type that the current class selection no longer offers
-  // would silently filter everything out, so it's dropped from the draft.
-  useEffect(() => {
-    setDraftExamTypeIds((prev) => {
-      const allowed = new Set(examTypeOptions.map((o) => o.value));
-      const next = prev.filter((id) => allowed.has(id));
-      return next.length === prev.length ? prev : next;
-    });
-  }, [examTypeOptions]);
-
-  const matchesFilter = (e, filter) => {
-    if (filter.pairs.length > 0 && !filter.pairs.includes(pairKeyOf(e))) return false;
-    if (filter.examTypeIds.length > 0 && !filter.examTypeIds.includes(e.examTypeId)) return false;
-    return true;
-  };
+  // would silently filter everything out, so it's left out of the draft.
+  // Worked out during render from what is on offer, rather than pruned from
+  // state in an effect.
+  const offeredDraftExamTypeIds = useMemo(() => {
+    const allowed = new Set(examTypeOptions.map((o) => o.value));
+    return draftExamTypeIds.filter((id) => allowed.has(id));
+  }, [examTypeOptions, draftExamTypeIds]);
 
   // Scope is checked apart from the applied filter because it takes effect
   // on its own, with or without one. An event's departments are derived from
   // its course/papers' subjects, so this reads as "taught by ..." — matching
   // any single one is enough, since a combined paper can span several.
-  const withinScope = (e) => {
-    if (scope === "all" || !hasOwnDepartment) return true;
-    const reach = scope === "institute" ? instituteScopeIds : departmentScopeIds;
-    return (e.eventDepartments || []).some((d) => reach.has(d.departmentId));
-  };
+  const withinScope = useCallback(
+    (e) => {
+      if (scope === "all" || !hasOwnDepartment) return true;
+      const reach = scope === "institute" ? instituteScopeIds : departmentScopeIds;
+      return (e.eventDepartments || []).some((d) => reach.has(d.departmentId));
+    },
+    [scope, hasOwnDepartment, instituteScopeIds, departmentScopeIds]
+  );
 
   // "Search Previous" widens the range rather than replacing it: off, only
   // today onwards; on, past events are included too. Either way an applied
@@ -532,8 +519,7 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
       );
     }
     return list;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allEvents, appliedFilter, searchText, scope, hasOwnDepartment, departmentScopeIds, instituteScopeIds]);
+  }, [allEvents, appliedFilter, searchText, withinScope]);
 
   const filterActive = !!appliedFilter || searchText.trim() !== "" || scope !== "all";
   const events = filteredEvents;
@@ -573,7 +559,7 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
   const applySearchFilter = () => {
     const next = {
       pairs: draftPairs,
-      examTypeIds: draftExamTypeIds,
+      examTypeIds: offeredDraftExamTypeIds,
       includePast: draftIncludePast,
     };
     setAppliedFilter(next);
@@ -802,8 +788,6 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
     setEquipmentDraftEquipmentId(null);
     setEquipmentDraftQuantity(null);
     setEquipmentAvailabilityMap({});
-    setSelectedEmployeeId(null);
-    setSelectedDutyType(null);
     setDutyLimits(null);
     if (canViewStaff) {
       getEventStaffDutyLimits(ev.id).then(({ data }) => setDutyLimits(data)).catch(() => {});
@@ -836,17 +820,13 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
       })
       .finally(() => setDetailsLoading(false));
 
-    // Assignment option lists (venues/equipment/employees/departments) are
-    // event-independent — fetch them once, the first time any assign
-    // permission is needed, not on every modal open.
-    if (!assignOptionsLoaded && (canAssignVenues || canAssignEquipment || canAssignStaff)) {
+    // Assignment option lists (venues/equipment) are event-independent —
+    // fetch them once, the first time any assign permission is needed, not
+    // on every modal open.
+    if (!assignOptionsLoaded && (canAssignVenues || canAssignEquipment)) {
       setAssignOptionsLoaded(true);
       if (canAssignVenues) getVenues().then(({ data }) => setAllVenues(data)).catch(() => {});
       if (canAssignEquipment) getEquipment().then(({ data }) => setAllEquipment(data)).catch(() => {});
-      if (canAssignStaff) {
-        getEmployees().then(({ data }) => setAllEmployees(data)).catch(() => {});
-        getDepartments().then(({ data }) => setAllDepartments(data)).catch(() => {});
-      }
     }
   };
 
@@ -896,64 +876,6 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
     () => allEquipment.find((e) => e.id === equipmentDraftEquipmentId)?.quantity ?? null,
     [allEquipment, equipmentDraftEquipmentId]
   );
-
-  // Whole department hierarchy (top-level root + every descendant) of every
-  // department already linked to this event — an employee from any of these
-  // is ineligible for staff duty (conflict of interest), mirroring
-  // EventStaffService.assertEmployeeEligible / EventResourcesPage.jsx.
-  const blockedDepartmentIds = useMemo(() => {
-    const assignedDepartments = detailsResources?.departments ?? [];
-    if (!allDepartments.length || !assignedDepartments.length) return new Set();
-    const byId = new Map(allDepartments.map((d) => [d.id, d]));
-    const childrenOf = new Map();
-    allDepartments.forEach((d) => {
-      if (d.parentId == null) return;
-      const siblings = childrenOf.get(d.parentId) || [];
-      siblings.push(d.id);
-      childrenOf.set(d.parentId, siblings);
-    });
-    const rootOf = (id) => {
-      let current = byId.get(id);
-      while (current?.parentId != null) current = byId.get(current.parentId);
-      return current?.id ?? id;
-    };
-    const blocked = new Set();
-    const collectSubtree = (id) => {
-      if (blocked.has(id)) return;
-      blocked.add(id);
-      (childrenOf.get(id) || []).forEach(collectSubtree);
-    };
-    assignedDepartments.forEach((ed) => collectSubtree(rootOf(ed.departmentId)));
-    return blocked;
-  }, [allDepartments, detailsResources]);
-
-  const availableEmployeeOptions = useMemo(() => {
-    const assignedIds = new Set((detailsResources?.staff ?? []).map((s) => s.employeeId));
-    return allEmployees
-      .filter((e) => e.isActive && !assignedIds.has(e.id) && !blockedDepartmentIds.has(e.departmentId))
-      .map((e) => ({ value: e.id, label: employeeLabel(e) }));
-  }, [allEmployees, detailsResources, blockedDepartmentIds]);
-
-  // Excludes any duty already at its exam type's configured maximum — the
-  // backend blocks it anyway, this just keeps the picker from offering it.
-  // eslint-disable-next-line no-unused-vars -- kept for the commented-out staff assign form below
-  const dutyTypeOptionsForAssign = useMemo(() => {
-    if (!dutyLimits) return DUTY_TYPE_OPTIONS;
-    const atMax = new Set(
-      dutyLimits.filter((d) => d.maxCount != null && d.currentCount >= d.maxCount).map((d) => d.dutyType)
-    );
-    return DUTY_TYPE_OPTIONS.filter((o) => !atMax.has(o.value));
-  }, [dutyLimits]);
-
-  // Edit-staff modal offers currently-eligible/unassigned employees plus
-  // whichever employee the row being edited already has.
-  const editStaffOptions = useMemo(() => {
-    if (!editingStaffRow) return availableEmployeeOptions;
-    const current = allEmployees.find((e) => e.id === editingStaffRow.employeeId);
-    if (!current) return availableEmployeeOptions;
-    return [{ value: current.id, label: employeeLabel(current) }, ...availableEmployeeOptions];
-  }, [availableEmployeeOptions, allEmployees, editingStaffRow]);
-
 
   const openDateTimeEdit = () => {
     setDateTimeEditing(true);
@@ -1128,70 +1050,6 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
       setError(err.response?.data?.message || "Could not remove equipment.");
     } finally {
       setRemovingEquipmentId(null);
-    }
-  };
-
-  const refreshDutyLimits = () => {
-    if (!detailsEvent) return;
-    getEventStaffDutyLimits(detailsEvent.id).then(({ data }) => setDutyLimits(data)).catch(() => {});
-  };
-
-  // eslint-disable-next-line no-unused-vars -- kept for the commented-out staff assign form below
-  const handleAssignStaff = async () => {
-    if (!detailsEvent || !selectedEmployeeId || !selectedDutyType) return;
-    setAssigningStaff(true);
-    setError("");
-    try {
-      const { data } = await assignEventStaff(detailsEvent.id, selectedEmployeeId, selectedDutyType);
-      setDetailsResources((prev) => ({ ...prev, staff: [...prev.staff, data] }));
-      setSelectedEmployeeId(null);
-      setSelectedDutyType(null);
-      refreshDutyLimits();
-    } catch (err) {
-      setError(err.response?.data?.message || "Could not assign staff.");
-    } finally {
-      setAssigningStaff(false);
-    }
-  };
-
-  // eslint-disable-next-line no-unused-vars -- kept for the commented-out staff table below
-  const handleUnassignStaff = async (employeeId) => {
-    if (!detailsEvent) return;
-    setRemovingStaffEmployeeId(employeeId);
-    setError("");
-    try {
-      await unassignEventStaff(detailsEvent.id, employeeId);
-      setDetailsResources((prev) => ({ ...prev, staff: prev.staff.filter((s) => s.employeeId !== employeeId) }));
-      refreshDutyLimits();
-    } catch (err) {
-      setError(err.response?.data?.message || "Could not remove staff.");
-    } finally {
-      setRemovingStaffEmployeeId(null);
-    }
-  };
-
-  // eslint-disable-next-line no-unused-vars -- kept for the commented-out staff table below
-  const openEditStaffModal = (record) => {
-    setEditingStaffRow(record);
-    staffForm.setFieldsValue({ employeeId: record.employeeId, dutyType: record.dutyType });
-  };
-
-  const handleEditStaffFinish = async (values) => {
-    setStaffModalLoading(true);
-    setError("");
-    try {
-      const { data } = await updateEventStaff(detailsEvent.id, editingStaffRow.employeeId, values.employeeId, values.dutyType);
-      setDetailsResources((prev) => ({
-        ...prev,
-        staff: prev.staff.map((s) => (s.id === editingStaffRow.id ? data : s)),
-      }));
-      setEditingStaffRow(null);
-      staffForm.resetFields();
-      refreshDutyLimits();
-    } catch (err) {
-      setError(err.response?.data?.message || "Could not update staff assignment.");
-    } finally {
-      setStaffModalLoading(false);
     }
   };
 
@@ -1434,7 +1292,7 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                     allowClear
                     showSearch
                     placeholder={draftPairs.length ? "Any exam type for these classes" : "Any exam type"}
-                    value={draftExamTypeIds}
+                    value={offeredDraftExamTypeIds}
                     onChange={setDraftExamTypeIds}
                     options={examTypeOptions}
                     style={{ width: "100%" }}
@@ -1500,7 +1358,7 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
           </Dropdown>
 
           {bulkAddEnabled && canCreateHere && (
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setBulkAddModalOpen(true)}>
+            <Button type="primary" icon={<PlusOutlined />} onClick={openBulkAddModal}>
               Add Exams
             </Button>
           )}
@@ -2025,7 +1883,7 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                             )}
 
                             <div
-                              onClick={(e) => { e.stopPropagation(); setVenueAllocationDate(day); }}
+                              onClick={(e) => { e.stopPropagation(); openVenueAllocation(day); }}
                               title="Open venue allocation for this day"
                               style={{
                                 flexShrink: 0,
@@ -2626,80 +2484,6 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
                             ))}
                         </Space>
                       )}
-                      {/* Staff assigning form + table — commented out per
-                          request; this section now only shows the required
-                          headcount per duty type as tags above.
-                      {canAssignStaff && !detailsPastLocked && (
-                        <Space style={{ marginBottom: 12 }} wrap>
-                          <Select
-                            placeholder="Select an employee to assign"
-                            options={availableEmployeeOptions}
-                            value={selectedEmployeeId}
-                            onChange={setSelectedEmployeeId}
-                            showSearch
-                            filterOption={(input, option) => option.label.toLowerCase().includes(input.toLowerCase())}
-                            style={{ width: 280 }}
-                          />
-                          <Select
-                            placeholder="Select duty"
-                            options={dutyTypeOptionsForAssign}
-                            value={selectedDutyType}
-                            onChange={setSelectedDutyType}
-                            style={{ width: 180 }}
-                          />
-                          <Button
-                            type="primary"
-                            icon={<PlusOutlined />}
-                            disabled={!selectedEmployeeId || !selectedDutyType}
-                            loading={assigningStaff}
-                            onClick={handleAssignStaff}
-                          >
-                            Assign
-                          </Button>
-                        </Space>
-                      )}
-                      <Table
-                        rowKey="employeeId"
-                        size="small"
-                        pagination={false}
-                        dataSource={detailsResources.staff}
-                        locale={{ emptyText: <Empty description="None assigned yet." image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
-                        columns={[
-                          {
-                            title: "Name",
-                            render: (_, r) =>
-                              `${r.employee?.firstName ?? ""} ${r.employee?.lastName ?? ""}`.trim() || "—",
-                          },
-                          { title: "Department", render: (_, r) => r.employee?.department?.name ?? "—" },
-                          { title: "Duty", render: (_, r) => DUTY_TYPE_LABELS[r.dutyType] ?? r.dutyType },
-                          {
-                            title: "Actions",
-                            width: 90,
-                            align: "center",
-                            render: (_, r) => (
-                              <Space>
-                                {canAssignStaff && !detailsPastLocked && (
-                                  <Tooltip title="Edit">
-                                    <Button size="small" icon={<EditOutlined />} onClick={() => openEditStaffModal(r)} />
-                                  </Tooltip>
-                                )}
-                                {canUnassignStaff && !detailsPastLocked && (
-                                  <Tooltip title="Remove">
-                                    <Button
-                                      size="small"
-                                      danger
-                                      icon={<DeleteOutlined />}
-                                      loading={removingStaffEmployeeId === r.employeeId}
-                                      onClick={() => handleUnassignStaff(r.employeeId)}
-                                    />
-                                  </Tooltip>
-                                )}
-                              </Space>
-                            ),
-                          },
-                        ]}
-                      />
-                      */}
                     </>
                   )}
                   </>
@@ -2778,33 +2562,6 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
         )}
       </Modal>
 
-
-      {/* Edit Staff Assignment Modal */}
-      <Modal
-        title="Edit Staff Assignment"
-        open={!!editingStaffRow}
-        onCancel={() => { setEditingStaffRow(null); staffForm.resetFields(); }}
-        onOk={() => staffForm.submit()}
-        okText="Save"
-        confirmLoading={staffModalLoading}
-        destroyOnHidden
-        centered
-      >
-        <Form form={staffForm} layout="vertical" onFinish={handleEditStaffFinish} requiredMark={false} style={{ marginTop: 16 }}>
-          <Form.Item name="employeeId" label="Employee" rules={[{ required: true, message: "Please select an employee." }]}>
-            <Select
-              placeholder="Select employee"
-              options={editStaffOptions}
-              showSearch
-              filterOption={(input, option) => option.label.toLowerCase().includes(input.toLowerCase())}
-            />
-          </Form.Item>
-          <Form.Item name="dutyType" label="Duty" rules={[{ required: true, message: "Please select a duty." }]}>
-            <Select placeholder="Select duty" options={DUTY_TYPE_OPTIONS} />
-          </Form.Item>
-        </Form>
-      </Modal>
-
       {/* Quick-add Event modal, opened from a Month view day box's "+" icon */}
       <EventFormModal
         open={addModalOpen}
@@ -2818,6 +2575,7 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
 
       {bulkAddEnabled && (
         <AddExamsModal
+          key={bulkAddOpenCount}
           open={bulkAddModalOpen}
           existingEvents={allEvents}
           onCancel={() => setBulkAddModalOpen(false)}
@@ -2829,6 +2587,7 @@ export default function EventCalendarView({ bulkAddEnabled = false }) {
       {/* Per-day resource allocation view — opened from a Month view day
           box's own date number. */}
       <VenueAllocationModal
+        key={venueAllocationOpenCount}
         open={!!venueAllocationDate}
         date={venueAllocationDate}
         events={events}

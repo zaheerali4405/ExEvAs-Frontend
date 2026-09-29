@@ -8,7 +8,7 @@ import { getExamScopes } from "../../api/examScopesApi";
 import {
   getExamCategoryColors, setExamCategoryColor, clearExamCategoryColor,
 } from "../../api/examCategoryColorsApi";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/useAuth";
 
 // Mirrors the backend's own DEFAULT_EVENT_COLORS — what an unset part falls
 // back to when an event block is drawn.

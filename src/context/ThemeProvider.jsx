@@ -1,7 +1,6 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import axiosClient from '../api/axiosClient';
-
-const ThemeContext = createContext(null);
+import { ThemeContext } from './themeContext';
 
 const CSS_DEFAULTS = {
   brandColor:       '#1AB394',
@@ -24,29 +23,26 @@ export function ThemeProvider({ children }) {
   );
   const [colors, setColors] = useState(CSS_DEFAULTS);
 
+  // Only stores the colours: the effect further down applies them to the
+  // page whenever they or the dark mode change, so this doesn't need isDark.
+  // Signed out, the defaults already in state stand.
   const loadSettings = useCallback(() => {
     const token = localStorage.getItem('exevas_token');
-    if (!token) {
-      applyColorVars(CSS_DEFAULTS, isDark);
-      return;
-    }
+    if (!token) return;
     // Branding-only endpoint: every signed-in user can read it, whereas the
     // full settings row needs system-settings.read and 403'd for everyone
     // else, dropping them onto fallback colours.
     axiosClient.get('/system-settings/branding').then(({ data }) => {
-      const loaded = {
+      setColors({
         brandColor:       data.brandColor       ?? CSS_DEFAULTS.brandColor,
         lightPrimaryBg:   data.lightPrimaryBg   ?? CSS_DEFAULTS.lightPrimaryBg,
         lightSecondaryBg: data.lightSecondaryBg ?? CSS_DEFAULTS.lightSecondaryBg,
         darkPrimaryBg:    data.darkPrimaryBg    ?? CSS_DEFAULTS.darkPrimaryBg,
         darkSecondaryBg:  data.darkSecondaryBg  ?? CSS_DEFAULTS.darkSecondaryBg,
-      };
-      setColors(loaded);
-      applyColorVars(loaded, isDark);
+      });
     }).catch(() => {
-      applyColorVars(CSS_DEFAULTS, isDark);
+      setColors(CSS_DEFAULTS);
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Load on startup if already authenticated
@@ -54,7 +50,7 @@ export function ThemeProvider({ children }) {
     loadSettings();
   }, [loadSettings]);
 
-  // Reload after login (fired by AuthContext.saveToken)
+  // Reload after login (fired by AuthProvider's saveToken)
   useEffect(() => {
     window.addEventListener('exevas_login', loadSettings);
     return () => window.removeEventListener('exevas_login', loadSettings);
@@ -82,8 +78,4 @@ export function ThemeProvider({ children }) {
       {children}
     </ThemeContext.Provider>
   );
-}
-
-export function useTheme() {
-  return useContext(ThemeContext);
 }

@@ -35,20 +35,30 @@ export default function MyNotificationsPage() {
   const [openDeliveryId, setOpenDeliveryId] = useState(null);
   const itemRefs = useRef(new Map());
 
-  const load = async () => {
+  const loadErrorMessage = (err) => err.response?.data?.message || "Could not load notifications.";
+
+  useEffect(() => {
+    let ignore = false;
+    getMyNotifications()
+      .then(({ data }) => { if (!ignore) setItems(data); })
+      .catch((err) => { if (!ignore) setError(loadErrorMessage(err)); })
+      .finally(() => { if (!ignore) setLoading(false); });
+    return () => { ignore = true; };
+  }, []);
+
+  // Reload after acting on a task status update.
+  const reload = async () => {
     setLoading(true);
     setError("");
     try {
       const { data } = await getMyNotifications();
       setItems(data);
     } catch (err) {
-      setError(err.response?.data?.message || "Could not load notifications.");
+      setError(loadErrorMessage(err));
     } finally {
       setLoading(false);
     }
   };
-
-  useEffect(() => { load(); }, []);
 
   useEffect(() => {
     if (!highlightId || loading) return;
@@ -166,7 +176,7 @@ export default function MyNotificationsPage() {
         deliveryId={openDeliveryId}
         open={!!openDeliveryId}
         onClose={() => setOpenDeliveryId(null)}
-        onActed={load}
+        onActed={reload}
       />
     </DashboardLayout>
   );

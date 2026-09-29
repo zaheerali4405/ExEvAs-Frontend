@@ -10,7 +10,7 @@ import DashboardLayout from "../../layouts/DashboardLayout";
 import PageCard from "../../components/PageCard";
 import { getUsers, createUser, updateUser, setUserStatus } from "../../api/usersApi";
 import { exportToExcel } from "../../utils/exportExcel";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/useAuth";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -70,20 +70,14 @@ export default function UsersList() {
   const [viewRecord, setViewRecord] = useState(null);
   const [form] = Form.useForm();
 
-  const fetchUsers = async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const { data } = await getUsers();
-      setUsers(data);
-    } catch (err) {
-      setError(err.response?.data?.message || "Could not load users.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { fetchUsers(); }, []);
+  useEffect(() => {
+    let ignore = false;
+    getUsers()
+      .then(({ data }) => { if (!ignore) setUsers(data); })
+      .catch((err) => { if (!ignore) setError(err.response?.data?.message || "Could not load users."); })
+      .finally(() => { if (!ignore) setLoading(false); });
+    return () => { ignore = true; };
+  }, []);
 
   // The user type filter narrows the list first — no types chosen means all of
   // them — and the search then runs over what is left.
@@ -100,8 +94,6 @@ export default function UsersList() {
       return String(getFieldValue(item, searchBy)).toLowerCase().includes(term);
     });
   }, [users, searchBy, searchTerm, userTypes]);
-
-  useEffect(() => { setCurrentPage(1); }, [searchTerm, searchBy, pageSize, userTypes]);
 
   const displayName = (user) => user.username || user.email;
 
@@ -299,7 +291,7 @@ export default function UsersList() {
             allowClear
             options={USER_TYPE_OPTIONS}
             value={userTypes}
-            onChange={setUserTypes}
+            onChange={(val) => { setUserTypes(val); setCurrentPage(1); }}
             maxTagCount="responsive"
             style={{ width: "100%" }}
           />
@@ -308,14 +300,14 @@ export default function UsersList() {
             allowClear
             options={searchableColumns}
             value={searchBy}
-            onChange={(val) => setSearchBy(val ?? null)}
+            onChange={(val) => { setSearchBy(val ?? null); setCurrentPage(1); }}
             style={{ width: "100%" }}
           />
           <Input
             placeholder="Search..."
             allowClear
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
             style={{ width: "auto" }}
           />
           <Button icon={<DownloadOutlined />} onClick={handleExport} style={{ width: "100%" }}>
@@ -340,7 +332,7 @@ export default function UsersList() {
                 <Select
                   value={pageSize}
                   options={PAGE_SIZE_OPTIONS.map((n) => ({ value: n, label: `${n}` }))}
-                  onChange={(val) => setPageSize(val)}
+                  onChange={(val) => { setPageSize(val); setCurrentPage(1); }}
                   style={{ cursor: "pointer" }}
                 />
                 <span style={{ fontSize: 14, color: "#595959" }}>Entries</span>

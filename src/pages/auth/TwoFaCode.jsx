@@ -3,7 +3,7 @@ import { useNavigate, useLocation, Navigate } from "react-router-dom";
 import { Form, Input, Button, Alert, Typography } from "antd";
 import AuthLayout from "../../layouts/AuthLayout";
 import { verify2fa } from "../../api/authApi";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/useAuth";
 
 const { Title, Text } = Typography;
 

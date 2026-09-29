@@ -10,7 +10,8 @@ import { getSubjects, createSubject, updateSubject, setSubjectStatus } from "../
 import { getDepartments } from "../../api/departmentsApi";
 import { getInstitutes } from "../../api/institutesApi";
 import { exportToExcel } from "../../utils/exportExcel";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/useAuth";
+import { loadOptions } from "../../utils/loadOptions";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -61,38 +62,16 @@ export default function SubjectsList() {
   const selectedInstituteId = Form.useWatch("instituteId", form);
 
   useEffect(() => {
-    (async () => {
-      setLoading(true);
-      setError("");
-      try {
-        const { data } = await getSubjects();
-        setSubjects(data);
-      } catch (err) {
-        setError(err.response?.data?.message || "Could not load subjects.");
-      } finally {
-        setLoading(false);
-      }
-
-      if (can("institute.read-all")) {
-        try {
-          const { data } = await getInstitutes();
-          setInstitutes(data);
-        } catch {
-          // Non-fatal: the institute dropdown just stays empty.
-        }
-      }
-
-      if (can("department.read-all")) {
-        try {
-          const { data } = await getDepartments();
-          setDepartments(data);
-        } catch {
-          // Non-fatal: the department dropdown just stays empty.
-        }
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    let ignore = false;
+    const isStale = () => ignore;
+    getSubjects()
+      .then(({ data }) => { if (!ignore) setSubjects(data); })
+      .catch((err) => { if (!ignore) setError(err.response?.data?.message || "Could not load subjects."); })
+      .finally(() => { if (!ignore) setLoading(false); });
+    loadOptions(can("institute.read-all"), getInstitutes, setInstitutes, isStale);
+    loadOptions(can("department.read-all"), getDepartments, setDepartments, isStale);
+    return () => { ignore = true; };
+  }, [can]);
 
   const filtered = useMemo(() => {
     const scoped = filterInstituteId
@@ -108,8 +87,6 @@ export default function SubjectsList() {
       return String(getFieldValue(item, searchBy)).toLowerCase().includes(term);
     });
   }, [subjects, filterInstituteId, searchBy, searchTerm]);
-
-  useEffect(() => { setCurrentPage(1); }, [filterInstituteId, searchTerm, searchBy, pageSize]);
 
   const handleToggle = (record) => {
     const activate = !record.isActive;
@@ -296,7 +273,7 @@ export default function SubjectsList() {
             allowClear
             options={instituteFilterOptions}
             value={filterInstituteId}
-            onChange={(val) => setFilterInstituteId(val ?? null)}
+            onChange={(val) => { setFilterInstituteId(val ?? null); setCurrentPage(1); }}
             showSearch
             filterOption={(input, option) => option.label.toLowerCase().includes(input.toLowerCase())}
             style={{ width: "100%" }}
@@ -306,14 +283,14 @@ export default function SubjectsList() {
             allowClear
             options={searchableColumns}
             value={searchBy}
-            onChange={(val) => setSearchBy(val ?? null)}
+            onChange={(val) => { setSearchBy(val ?? null); setCurrentPage(1); }}
             style={{ width: "100%" }}
           />
           <Input
             placeholder="Search..."
             allowClear
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
             style={{ width: "auto" }}
           />
           <Button icon={<DownloadOutlined />} onClick={handleExport} style={{ width: "100%" }}>
@@ -338,7 +315,7 @@ export default function SubjectsList() {
                 <Select
                   value={pageSize}
                   options={PAGE_SIZE_OPTIONS.map((n) => ({ value: n, label: `${n}` }))}
-                  onChange={(val) => setPageSize(val)}
+                  onChange={(val) => { setPageSize(val); setCurrentPage(1); }}
                   style={{ cursor: "pointer" }}
                 />
                 <span style={{ fontSize: 14, color: "#595959" }}>Entries</span>

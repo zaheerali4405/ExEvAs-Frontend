@@ -11,6 +11,8 @@ import { infoTip } from "../../utils/formTooltip";
 
 const { Text } = Typography;
 
+const NO_TEMPLATES = [];
+
 const examLabel = (e) => `${e.shortName}${e.eventDate ? ` — ${dayjs(e.eventDate).format("DD MMM YYYY")}` : ""}`;
 
 // The admin's way to add a task by hand, two kinds:
@@ -18,13 +20,15 @@ const examLabel = (e) => `${e.shortName}${e.eventDate ? ` — ${dayjs(e.eventDat
 //     with the template's own timing. How an exam created before its workflow
 //     gets its tasks.
 //   One-off — typed in here with fixed dates, for work no template covers.
-// onCreated is told the new task.
+// onCreated is told the new task. The Tasks page keys it per opening, so
+// every open starts from fresh state and empty forms.
 export default function NewTaskModal({ open, onClose, onCreated }) {
   const [kind, setKind] = useState("template");
   const [exams, setExams] = useState([]);
   const [designations, setDesignations] = useState([]);
-  const [templates, setTemplates] = useState([]);
-  const [templatesLoading, setTemplatesLoading] = useState(false);
+  // Tagged with the exam they were loaded for, so another exam's templates
+  // are never offered and "still loading" can be read off the mismatch.
+  const [loadedTemplates, setLoadedTemplates] = useState({ examId: null, list: [] });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [templateForm] = Form.useForm();
@@ -32,43 +36,44 @@ export default function NewTaskModal({ open, onClose, onCreated }) {
   const examId = Form.useWatch("eventId", templateForm);
   const templateId = Form.useWatch("taskTemplateId", templateForm);
 
+  const templates = examId && loadedTemplates.examId === examId ? loadedTemplates.list : NO_TEMPLATES;
+  const templatesLoading = !!examId && loadedTemplates.examId !== examId;
+
   useEffect(() => {
     if (!open) return;
-    setKind("template");
-    setError("");
-    setTemplates([]);
-    templateForm.resetFields();
-    oneOffForm.resetFields();
-    (async () => {
-      try {
-        const [{ data: e }, { data: d }] = await Promise.all([getTaskExamOptions(), getTaskDesignationOptions()]);
+    let ignore = false;
+    Promise.all([getTaskExamOptions(), getTaskDesignationOptions()])
+      .then(([{ data: e }, { data: d }]) => {
+        if (ignore) return;
         setExams(e);
         setDesignations(d);
-      } catch (err) {
-        setError(err.response?.data?.message || "Could not load the exams and designations.");
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      })
+      .catch((err) => {
+        if (!ignore) setError(err.response?.data?.message || "Could not load the exams and designations.");
+      });
+    return () => { ignore = true; };
   }, [open]);
 
   // The templates that apply to the chosen exam.
   useEffect(() => {
-    templateForm.setFieldValue("taskTemplateId", undefined);
-    setTemplates([]);
     if (!examId) return;
-    setTemplatesLoading(true);
-    (async () => {
-      try {
-        const { data } = await getTaskTemplateOptions(examId);
-        setTemplates(data);
-      } catch (err) {
+    let ignore = false;
+    getTaskTemplateOptions(examId)
+      .then(({ data }) => {
+        if (!ignore) setLoadedTemplates({ examId, list: data });
+      })
+      .catch((err) => {
+        if (ignore) return;
         setError(err.response?.data?.message || "Could not load this exam's templates.");
-      } finally {
-        setTemplatesLoading(false);
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+        setLoadedTemplates({ examId, list: [] });
+      });
+    return () => { ignore = true; };
   }, [examId]);
+
+  // A template belongs to the exam it was picked for.
+  const handleTemplateFormChange = (changed) => {
+    if ("eventId" in changed) templateForm.setFieldValue("taskTemplateId", undefined);
+  };
 
   const examOptions = useMemo(() => exams.map((e) => ({ value: e.id, label: examLabel(e) })), [exams]);
   const designationOptions = useMemo(() => designations.map((d) => ({ value: d.id, label: d.name })), [designations]);
@@ -150,7 +155,7 @@ export default function NewTaskModal({ open, onClose, onCreated }) {
             key: "template",
             label: "From a template",
             children: (
-              <Form form={templateForm} layout="vertical" requiredMark={false}>
+              <Form form={templateForm} layout="vertical" requiredMark={false} onValuesChange={handleTemplateFormChange}>
                 <Form.Item
                   name="eventId"
                   label="Exam"

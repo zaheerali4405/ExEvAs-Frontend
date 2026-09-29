@@ -14,7 +14,7 @@ import {
   updateNotification, sendNotification, setNotificationActiveStatus,
 } from "../../api/notificationsApi";
 import { exportToExcel } from "../../utils/exportExcel";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/useAuth";
 import AudiencePicker from "./AudiencePicker";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
@@ -75,6 +75,18 @@ export default function NotificationsList() {
   const [detailsRecord, setDetailsRecord] = useState(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
 
+  const loadErrorMessage = (err) => err.response?.data?.message || "Could not load notifications.";
+
+  useEffect(() => {
+    let ignore = false;
+    getNotifications()
+      .then(({ data }) => { if (!ignore) setNotifications(data); })
+      .catch((err) => { if (!ignore) setError(loadErrorMessage(err)); })
+      .finally(() => { if (!ignore) setLoading(false); });
+    return () => { ignore = true; };
+  }, []);
+
+  // Reload after a save, a send, or a cancel/reactivate.
   const loadNotifications = async () => {
     setLoading(true);
     setError("");
@@ -82,15 +94,11 @@ export default function NotificationsList() {
       const { data } = await getNotifications();
       setNotifications(data);
     } catch (err) {
-      setError(err.response?.data?.message || "Could not load notifications.");
+      setError(loadErrorMessage(err));
     } finally {
       setLoading(false);
     }
   };
-
-  useEffect(() => {
-    loadNotifications();
-  }, []);
 
   const filtered = useMemo(() => {
     const inCategory = notifications.filter((n) => n.category === categoryTab);
@@ -104,8 +112,6 @@ export default function NotificationsList() {
       return String(getFieldValue(item, searchBy)).toLowerCase().includes(term);
     });
   }, [notifications, categoryTab, searchBy, searchTerm]);
-
-  useEffect(() => { setCurrentPage(1); }, [categoryTab, searchTerm, searchBy, pageSize]);
 
   const openAddModal = () => {
     setEditingRecord(null);
@@ -343,7 +349,7 @@ export default function NotificationsList() {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
           <Tabs
             activeKey={categoryTab}
-            onChange={setCategoryTab}
+            onChange={(val) => { setCategoryTab(val); setCurrentPage(1); }}
             items={CATEGORY_TABS}
             className="no-border-tabs"
             style={{ marginBottom: 0 }}
@@ -355,14 +361,14 @@ export default function NotificationsList() {
               allowClear
               options={searchableColumns}
               value={searchBy}
-              onChange={(val) => setSearchBy(val ?? null)}
+              onChange={(val) => { setSearchBy(val ?? null); setCurrentPage(1); }}
               style={{ width: "100%" }}
             />
             <Input
               placeholder="Search..."
               allowClear
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
               style={{ width: "auto" }}
             />
             <Button icon={<DownloadOutlined />} onClick={handleExport} style={{ width: "100%" }}>
@@ -388,7 +394,7 @@ export default function NotificationsList() {
                 <Select
                   value={pageSize}
                   options={PAGE_SIZE_OPTIONS.map((n) => ({ value: n, label: `${n}` }))}
-                  onChange={(val) => setPageSize(val)}
+                  onChange={(val) => { setPageSize(val); setCurrentPage(1); }}
                   style={{ cursor: "pointer" }}
                 />
                 <span style={{ fontSize: 14, color: "#595959" }}>Entries</span>

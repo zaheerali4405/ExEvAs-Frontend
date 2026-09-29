@@ -10,7 +10,7 @@ import {
 } from "../../api/rolePermissionsApi";
 import { getRoles } from "../../api/rolesApi";
 import { getPermissions } from "../../api/permissionsApi";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/useAuth";
 
 const { Text } = Typography;
 
@@ -112,81 +112,87 @@ const RESOURCE_GROUPS = [
   },
 ];
 
+const NO_IDS = new Set();
+
 export default function RolePermissionsList() {
   const [searchParams] = useSearchParams();
+  const paramRoleId = searchParams.get("roleId");
   const { can } = useAuth();
 
   const [roles, setRoles] = useState([]);
   const [allPermissions, setAllPermissions] = useState([]);
-  const [assignedIds, setAssignedIds] = useState(new Set());
-  const [assignedRecords, setAssignedRecords] = useState([]);
+  // Tagged with the role they were loaded for, so a stale set is never shown
+  // against a different selection and "still loading" can be read off the
+  // mismatch.
+  const [assigned, setAssigned] = useState({ roleId: null, ids: NO_IDS });
 
   const [selectedRoleId, setSelectedRoleId] = useState(null);
   const [loadingBase, setLoadingBase] = useState(true);
-  const [loadingAssigned, setLoadingAssigned] = useState(false);
   const [togglingIds, setTogglingIds] = useState(new Set());
   const [error, setError] = useState("");
 
+  const assignedIds = assigned.roleId === selectedRoleId ? assigned.ids : NO_IDS;
+  const loadingAssigned = !!selectedRoleId && assigned.roleId !== selectedRoleId;
+
   useEffect(() => {
-    (async () => {
-      setLoadingBase(true);
-      try {
-        const [rolesRes, permsRes] = await Promise.all([getRoles(), getPermissions()]);
+    let ignore = false;
+    Promise.all([getRoles(), getPermissions()])
+      .then(([rolesRes, permsRes]) => {
+        if (ignore) return;
         setRoles(rolesRes.data);
         setAllPermissions(permsRes.data);
-
         // Resolve query-param roleId to the actual typed id from the loaded roles
-        const paramId = searchParams.get("roleId");
-        if (paramId) {
-          const match = rolesRes.data.find((r) => String(r.id) === String(paramId));
+        if (paramRoleId) {
+          const match = rolesRes.data.find((r) => String(r.id) === String(paramRoleId));
           if (match) setSelectedRoleId(match.id);
         }
-      } catch {
-        setError("Could not load roles or permissions.");
-      } finally {
-        setLoadingBase(false);
-      }
-    })();
-  }, []);
+      })
+      .catch(() => {
+        if (!ignore) setError("Could not load roles or permissions.");
+      })
+      .finally(() => {
+        if (!ignore) setLoadingBase(false);
+      });
+    return () => { ignore = true; };
+  }, [paramRoleId]);
 
   useEffect(() => {
-    if (!selectedRoleId) {
-      setAssignedIds(new Set());
-      setAssignedRecords([]);
-      return;
-    }
-    (async () => {
-      setLoadingAssigned(true);
-      setError("");
-      try {
-        const { data } = await getRolePermissions(selectedRoleId);
-        setAssignedRecords(data);
-        setAssignedIds(new Set(data.map((r) => r.permissionId)));
-      } catch (err) {
+    if (!selectedRoleId) return;
+    let ignore = false;
+    getRolePermissions(selectedRoleId)
+      .then(({ data }) => {
+        if (!ignore) setAssigned({ roleId: selectedRoleId, ids: new Set(data.map((r) => r.permissionId)) });
+      })
+      .catch((err) => {
+        if (ignore) return;
         setError(err.response?.data?.message || "Could not load assigned permissions.");
-      } finally {
-        setLoadingAssigned(false);
-      }
-    })();
+        setAssigned({ roleId: selectedRoleId, ids: NO_IDS });
+      });
+    return () => { ignore = true; };
   }, [selectedRoleId]);
+
+  const handleRoleChange = (val) => {
+    setError("");
+    setSelectedRoleId(val ?? null);
+  };
 
   const handleToggle = async (permId, checked) => {
     setTogglingIds((prev) => new Set(prev).add(permId));
     setError("");
+    const roleId = selectedRoleId;
     try {
       if (checked) {
-        const { data } = await assignPermission(selectedRoleId, permId);
-        setAssignedRecords((prev) => [...prev, data]);
-        setAssignedIds((prev) => new Set(prev).add(permId));
+        await assignPermission(roleId, permId);
       } else {
-        await unassignPermission(selectedRoleId, permId);
-        setAssignedRecords((prev) => prev.filter((r) => r.permissionId !== permId));
-        setAssignedIds((prev) => {
-          const next = new Set(prev);
-          next.delete(permId);
-          return next;
-        });
+        await unassignPermission(roleId, permId);
       }
+      setAssigned((prev) => {
+        if (prev.roleId !== roleId) return prev;
+        const ids = new Set(prev.ids);
+        if (checked) ids.add(permId);
+        else ids.delete(permId);
+        return { ...prev, ids };
+      });
     } catch (err) {
       setError(err.response?.data?.message || "Could not update permission.");
     } finally {
@@ -254,7 +260,9 @@ export default function RolePermissionsList() {
     return rows;
   }, [resources, permissionMap]);
 
-  const columns = useMemo(() => {
+  // Not memoized: the checkbox cells close over handleToggle, which is new on
+  // every render, so a memo here could never be reused anyway.
+  const columns = (() => {
     const resourceCol = {
       title: "Resource",
       dataIndex: "resource",
@@ -297,7 +305,7 @@ export default function RolePermissionsList() {
     }));
 
     return [resourceCol, ...actionCols];
-  }, [actions, permissionMap, assignedIds, togglingIds, selectedRoleId, can]);
+  })();
 
   return (
     <DashboardLayout>
@@ -325,7 +333,7 @@ export default function RolePermissionsList() {
               loading={loadingBase}
               options={roles.map((r) => ({ value: r.id, label: r.name }))}
               value={selectedRoleId}
-              onChange={(val) => setSelectedRoleId(val ?? null)}
+              onChange={handleRoleChange}
               style={{ width: "100%", maxWidth: 400 }}
               allowClear
               showSearch

@@ -33,7 +33,8 @@ import { getSessions } from "../../api/sessionsApi";
 import { getPrograms } from "../../api/programsApi";
 import { getDegreeLevels } from "../../api/degreeLevelsApi";
 import { exportToExcel } from "../../utils/exportExcel";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/useAuth";
+import { loadOptions } from "../../utils/loadOptions";
 
 const { Text } = Typography;
 
@@ -104,56 +105,19 @@ export default function StudentsList() {
   const selectedClassId = Form.useWatch("classId", form);
 
   useEffect(() => {
-    (async () => {
-      setLoading(true);
-      setError("");
-      try {
-        const { data } = await getStudents();
-        setStudents(data);
-      } catch (err) {
-        setError(err.response?.data?.message || "Could not load students.");
-      } finally {
-        setLoading(false);
-      }
-
-      if (can("class.read-all")) {
-        try {
-          const { data } = await getClasses();
-          setClasses(data);
-        } catch {
-          // Non-fatal: classId just can't be auto-resolved.
-        }
-      }
-
-      if (can("session.read-all")) {
-        try {
-          const { data } = await getSessions();
-          setSessions(data);
-        } catch {
-          // Non-fatal: the session dropdown just stays empty.
-        }
-      }
-
-      if (can("program.read-all")) {
-        try {
-          const { data } = await getPrograms();
-          setPrograms(data);
-        } catch {
-          // Non-fatal: the program dropdown just stays empty.
-        }
-      }
-
-      if (can("degree-level.read-all")) {
-        try {
-          const { data } = await getDegreeLevels();
-          setDegreeLevels(data);
-        } catch {
-          // Non-fatal: the degree level dropdown just stays empty.
-        }
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    let ignore = false;
+    const isStale = () => ignore;
+    getStudents()
+      .then(({ data }) => { if (!ignore) setStudents(data); })
+      .catch((err) => { if (!ignore) setError(err.response?.data?.message || "Could not load students."); })
+      .finally(() => { if (!ignore) setLoading(false); });
+    // Without classes, classId just can't be auto-resolved.
+    loadOptions(can("class.read-all"), getClasses, setClasses, isStale);
+    loadOptions(can("session.read-all"), getSessions, setSessions, isStale);
+    loadOptions(can("program.read-all"), getPrograms, setPrograms, isStale);
+    loadOptions(can("degree-level.read-all"), getDegreeLevels, setDegreeLevels, isStale);
+    return () => { ignore = true; };
+  }, [can]);
 
   // Class is fully determined by Session + Program + Degree Level (Class has
   // a unique constraint on that triple) — no separate Class dropdown, it's
@@ -186,10 +150,6 @@ export default function StudentsList() {
       return String(getFieldValue(item, searchBy)).toLowerCase().includes(term);
     });
   }, [students, searchBy, searchTerm]);
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm, searchBy, pageSize]);
 
   const handleToggle = (record) => {
     const activate = !record.isActive;
@@ -265,25 +225,33 @@ export default function StudentsList() {
     }
     setModalLoading(true);
     try {
-      // sessionId/programId/degreeLevelId only exist to resolve classId in
-      // this form's own cascade — Student itself has no sessionId of its
-      // own, and programId/degreeLevelId are reached through classId.
-      const { rollNoSuffix, sessionId, programId, degreeLevelId, ...rest } = values;
       const selectedClass = classes.find((c) => c.id === values.classId);
       // registrationNo/gender/cnic/phoneNo/postalAddress are optional now —
       // a field the user focused then left blank comes through as "" (not
       // undefined), which would otherwise still trip e.g. the CNIC format
       // check server-side. Blank out to undefined so "left empty" really
       // means "not provided".
-      ["registrationNo", "gender", "cnic", "phoneNo", "postalAddress"].forEach((key) => {
-        if (rest[key] === "") rest[key] = undefined;
-      });
+      const optional = (value) => (value === "" ? undefined : value);
+      // Built field by field: sessionId/programId/degreeLevelId only exist to
+      // resolve classId in this form's own cascade (Student has no sessionId
+      // of its own, and reaches program/degree level through classId), and
+      // rollNoSuffix is folded into rollNo. email and password are only on
+      // the add form, so they are undefined (and not sent) on an edit.
       const payload = {
-        ...rest,
-        rollNo: `${classPrefix(selectedClass)}${rollNoSuffix || ""}`,
+        email: values.email,
+        password: values.password,
+        classId: values.classId,
+        firstName: values.firstName,
+        lastName: values.lastName,
+        rollNo: `${classPrefix(selectedClass)}${values.rollNoSuffix || ""}`,
+        registrationNo: optional(values.registrationNo),
+        gender: optional(values.gender),
         dateOfBirth: values.dateOfBirth
           ? values.dateOfBirth.format("YYYY-MM-DD")
           : undefined,
+        cnic: optional(values.cnic),
+        phoneNo: optional(values.phoneNo),
+        postalAddress: optional(values.postalAddress),
       };
       if (editingRecord) {
         const { data } = await updateStudent(editingRecord.id, payload);
@@ -441,14 +409,14 @@ export default function StudentsList() {
             allowClear
             options={searchableColumns}
             value={searchBy}
-            onChange={(val) => setSearchBy(val ?? null)}
+            onChange={(val) => { setSearchBy(val ?? null); setCurrentPage(1); }}
             style={{ width: "100%" }}
           />
           <Input
             placeholder="Search..."
             allowClear
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
             style={{ width: "auto" }}
           />
           <Button
@@ -483,7 +451,7 @@ export default function StudentsList() {
                     value: n,
                     label: `${n}`,
                   }))}
-                  onChange={(val) => setPageSize(val)}
+                  onChange={(val) => { setPageSize(val); setCurrentPage(1); }}
                   style={{ cursor: "pointer" }}
                 />
                 <span style={{ fontSize: 14, color: "#595959" }}>Entries</span>

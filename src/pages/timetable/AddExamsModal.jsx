@@ -9,7 +9,8 @@ import { getExamCategories } from "../../api/examCategoriesApi";
 import { getExamCategoryColors } from "../../api/examCategoryColorsApi";
 import { getExamCategoryRules } from "../../api/examCategoryRulesApi";
 import { rulesForPair, anyScopeAllows } from "../../utils/examRules";
-import { useAuth } from "../../context/AuthContext";
+import { loadOptions } from "../../utils/loadOptions";
+import { useAuth } from "../../context/useAuth";
 
 const { Text } = Typography;
 
@@ -87,36 +88,23 @@ export default function AddExamsModal({ open, existingEvents = [], onCancel, onS
 
   useEffect(() => {
     if (!open) return;
-    (async () => {
-      if (can("class.read-all")) {
-        try { const { data } = await getClasses(); setClasses(data); } catch { /* dropdown stays empty */ }
-      }
-      if (can("course-paper.read-all")) {
-        try { const { data } = await getCoursePapers(); setCoursePapers(data); } catch { /* pool stays empty */ }
-      }
-      try {
-        const [categoriesRes, colorsRes, rulesRes] = await Promise.all([
-          getExamCategories(), getExamCategoryColors(), getExamCategoryRules(),
-        ]);
+    let ignore = false;
+    const isStale = () => ignore;
+    loadOptions(can("class.read-all"), getClasses, setClasses, isStale);
+    loadOptions(can("course-paper.read-all"), getCoursePapers, setCoursePapers, isStale);
+    Promise.all([getExamCategories(), getExamCategoryColors(), getExamCategoryRules()])
+      .then(([categoriesRes, colorsRes, rulesRes]) => {
+        if (ignore) return;
         setExamCategories(categoriesRes.data);
         setPairColors(colorsRes.data);
         setPairRules(rulesRes.data);
-      } catch { /* lanes stay empty */ }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+      })
+      .catch(() => { /* lanes stay empty */ });
+    return () => { ignore = true; };
+  }, [open, can]);
 
-  // Fresh state every time the modal is (re)opened.
-  useEffect(() => {
-    if (!open) return;
-    setIsRetakeMode(false);
-    setSelectedClassId(null);
-    setSelectedExamTypeId(null);
-    setWeekStart(mondayOf(dayjs()));
-    setGroupsByCategory({});
-    setAssignments([]);
-    setResults(null);
-  }, [open]);
+  // No reset on open here: the Datesheet keys this modal per opening, so
+  // every open is a fresh mount with the initial state above.
 
   const handleRetakeModeChange = (checked) => {
     setIsRetakeMode(checked);
@@ -124,9 +112,11 @@ export default function AddExamsModal({ open, existingEvents = [], onCancel, onS
     setSelectedExamTypeId(null);
   };
 
-  useEffect(() => {
+  // An exam type belongs to the class it was picked for.
+  const handleClassChange = (classId) => {
+    setSelectedClassId(classId);
     setSelectedExamTypeId(null);
-  }, [selectedClassId]);
+  };
 
   const selectedClass = useMemo(
     () => classes.find((c) => c.id === selectedClassId && c.isActive) ?? null,
@@ -230,6 +220,22 @@ export default function AddExamsModal({ open, existingEvents = [], onCancel, onS
     return classCoursePapers.filter((c) => (c.examTypes || []).some((link) => link.examTypeId === selectedExamTypeId));
   }, [classCoursePapers, selectedExamTypeId]);
 
+  // The exam type object itself (examTypeOptions only carries {value,label})
+  // — needed for its own shortName, same as previewShortName below needs it.
+  const selectedExamType = useMemo(() => {
+    for (const cp of classExamTypeCoursePapers) {
+      const link = (cp.examTypes || []).find((l) => l.examTypeId === selectedExamTypeId);
+      if (link?.examType) return link.examType;
+    }
+    return null;
+  }, [classExamTypeCoursePapers, selectedExamTypeId]);
+
+  // Rules for one category under the exam type being scheduled. Class and
+  // Exam Type are both chosen before any lane renders, so the scope — and
+  // therefore the pair — is always known by the time this is read.
+  const rulesFor = (categoryId) =>
+    rulesForPair(pairRules, categoryId, selectedExamType?.examScopeId);
+
   // Per-paper original/retake history for one category — used both to build
   // each lane's eligible pool and to find a retake's date floor.
   const historyForCategory = (categoryId, coursePaperId) => {
@@ -277,21 +283,22 @@ export default function AddExamsModal({ open, existingEvents = [], onCancel, onS
 
   // Rebuild every lane's groups (one per eligible paper) whenever the
   // class/exam type/retake mode changes — same reset moment the old single-
-  // pool version cleared its staged assignments on.
-  useEffect(() => {
-    if (!selectedClass || !selectedExamTypeId) {
-      setGroupsByCategory({});
-      setAssignments([]);
-      return;
-    }
+  // pool version cleared its staged assignments on. Adjusted during render
+  // against the selection the lanes were last built for, rather than in an
+  // effect.
+  const laneSelectionKey = `${selectedClassId}|${selectedExamTypeId}|${isRetakeMode}`;
+  const [lanesBuiltFor, setLanesBuiltFor] = useState(laneSelectionKey);
+  if (lanesBuiltFor !== laneSelectionKey) {
+    setLanesBuiltFor(laneSelectionKey);
     const next = {};
-    mappedCategories.forEach((category) => {
-      next[category.id] = eligiblePapersForCategory(category).map((cp) => ({ id: nextLocalId(), coursePaperIds: [cp.id] }));
-    });
+    if (selectedClass && selectedExamTypeId) {
+      mappedCategories.forEach((category) => {
+        next[category.id] = eligiblePapersForCategory(category).map((cp) => ({ id: nextLocalId(), coursePaperIds: [cp.id] }));
+      });
+    }
     setGroupsByCategory(next);
     setAssignments([]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedClassId, selectedExamTypeId, isRetakeMode]);
+  }
 
   // The week grid opens on the running week and stays there until the
   // scheduler moves it. It used to jump to the week of the class's earliest
@@ -322,26 +329,10 @@ export default function AddExamsModal({ open, existingEvents = [], onCancel, onS
       { key: "nonIntegrated", label: "Non-Integrated", items: groups.filter((g) => !groupIsIntegrated(g)) },
     ].filter((section) => section.items.length > 0);
 
-  // The exam type object itself (examTypeOptions only carries {value,label})
-  // — needed for its own shortName, same as previewShortName below needs it.
-  const selectedExamType = useMemo(() => {
-    for (const cp of classExamTypeCoursePapers) {
-      const link = (cp.examTypes || []).find((l) => l.examTypeId === selectedExamTypeId);
-      if (link?.examType) return link.examType;
-    }
-    return null;
-  }, [classExamTypeCoursePapers, selectedExamTypeId]);
-
   // A lane is colored with the same (category × exam scope) pair its events
   // will actually be drawn with once created — the scope comes from the exam
   // type being scheduled, so switching exam type can recolor the lanes. The
   // cycled palette is only a fallback for a pair that has no colors set.
-  // Rules for one category under the exam type being scheduled. Class and
-  // Exam Type are both chosen before any lane renders, so the scope — and
-  // therefore the pair — is always known by the time this is read.
-  const rulesFor = (categoryId) =>
-    rulesForPair(pairRules, categoryId, selectedExamType?.examScopeId);
-
   const categoryColor = useMemo(() => {
     const map = new Map();
     const scopeId = selectedExamType?.examScopeId;
@@ -604,11 +595,13 @@ export default function AddExamsModal({ open, existingEvents = [], onCancel, onS
       bars.push({ key: `event-${ev.id}`, kind: "existing", ev, start, end, startIdx, endIdx });
     });
 
+    // Same lookups as rulesFor and dayIndexOf, spelled out on the values
+    // this memo depends on.
     assignments.forEach((a) => {
       const category = mappedCategories.find((c) => c.id === a.categoryId);
-      if (!category || !rulesFor(category.id).allowsDateRange) return;
-      const startIdx = dayIndexOf(a.startDate);
-      const endIdx = dayIndexOf(a.endDate);
+      if (!category || !rulesForPair(pairRules, category.id, selectedExamType?.examScopeId).allowsDateRange) return;
+      const startIdx = weekDays.findIndex((d) => d.format("YYYY-MM-DD") === a.startDate);
+      const endIdx = weekDays.findIndex((d) => d.format("YYYY-MM-DD") === a.endDate);
       if (startIdx === -1 || endIdx === -1) return;
       bars.push({ key: `staged-${a.id}`, kind: "staged", assignment: a, category, startIdx, endIdx });
     });
@@ -639,7 +632,6 @@ export default function AddExamsModal({ open, existingEvents = [], onCancel, onS
     });
 
     return { laneCount: lanes.length, bars };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [existingEvents, assignments, mappedCategories, pairRules, selectedExamType, weekDays]);
 
   // One lane slot per bar line, null where that lane has nothing on this day
@@ -754,7 +746,7 @@ export default function AddExamsModal({ open, existingEvents = [], onCancel, onS
               placeholder="Select class"
               options={classOptions}
               value={selectedClassId}
-              onChange={setSelectedClassId}
+              onChange={handleClassChange}
               showSearch
               filterOption={(input, option) => option.label.toLowerCase().includes(input.toLowerCase())}
             />

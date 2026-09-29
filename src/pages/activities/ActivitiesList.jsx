@@ -11,7 +11,8 @@ import { getActivities, createActivity, updateActivity, setActivityStatus } from
 import { getWorkflows } from "../../api/workflowsApi";
 import { exportToExcel } from "../../utils/exportExcel";
 import { infoTip } from "../../utils/formTooltip";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/useAuth";
+import { loadOptions } from "../../utils/loadOptions";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -60,6 +61,14 @@ export default function ActivitiesList() {
   const [searchBy, setSearchBy] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  // The filter lives in the URL, so it can change without passing through a
+  // handler here (Back, or a link from another page). Back to the first page
+  // whenever it does, adjusted during render rather than in an effect.
+  const [pagedWorkflowFilter, setPagedWorkflowFilter] = useState(workflowFilter);
+  if (pagedWorkflowFilter !== workflowFilter) {
+    setPagedWorkflowFilter(workflowFilter);
+    setCurrentPage(1);
+  }
   const [pageSize, setPageSize] = useState(10);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
@@ -67,23 +76,15 @@ export default function ActivitiesList() {
   const [form] = Form.useForm();
 
   useEffect(() => {
-    (async () => {
-      setLoading(true);
-      setError("");
-      try {
-        const { data } = await getActivities();
-        setActivities(data);
-      } catch (err) {
-        setError(err.response?.data?.message || "Could not load activities.");
-      } finally {
-        setLoading(false);
-      }
-      if (can("workflow.read-all")) {
-        try { const { data } = await getWorkflows(); setWorkflows(data); } catch { /* dropdown stays empty */ }
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    let ignore = false;
+    const isStale = () => ignore;
+    getActivities()
+      .then(({ data }) => { if (!ignore) setActivities(data); })
+      .catch((err) => { if (!ignore) setError(err.response?.data?.message || "Could not load activities."); })
+      .finally(() => { if (!ignore) setLoading(false); });
+    loadOptions(can("workflow.read-all"), getWorkflows, setWorkflows, isStale);
+    return () => { ignore = true; };
+  }, [can]);
 
   // A new activity goes on an active workflow; an existing one keeps showing
   // its own, even if that workflow has since been switched off.
@@ -118,8 +119,6 @@ export default function ActivitiesList() {
       return String(getFieldValue(item, searchBy)).toLowerCase().includes(term);
     });
   }, [activities, workflowFilter, searchBy, searchTerm]);
-
-  useEffect(() => { setCurrentPage(1); }, [searchTerm, searchBy, pageSize, workflowFilter]);
 
   const handleToggle = (record) => {
     const activate = !record.isActive;
@@ -305,14 +304,14 @@ export default function ActivitiesList() {
             allowClear
             options={searchableColumns}
             value={searchBy}
-            onChange={(val) => setSearchBy(val ?? null)}
+            onChange={(val) => { setSearchBy(val ?? null); setCurrentPage(1); }}
             style={{ width: "100%" }}
           />
           <Input
             placeholder="Search..."
             allowClear
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
             style={{ width: "auto" }}
           />
           <Button icon={<DownloadOutlined />} onClick={handleExport} style={{ width: "100%" }}>
@@ -337,7 +336,7 @@ export default function ActivitiesList() {
                 <Select
                   value={pageSize}
                   options={PAGE_SIZE_OPTIONS.map((n) => ({ value: n, label: `${n}` }))}
-                  onChange={(val) => setPageSize(val)}
+                  onChange={(val) => { setPageSize(val); setCurrentPage(1); }}
                   style={{ cursor: "pointer" }}
                 />
                 <span style={{ fontSize: 14, color: "#595959" }}>Entries</span>

@@ -15,7 +15,9 @@ export default function TaskUpdateModal({ deliveryId, open, onClose, onActed }) 
       centered
     >
       <div style={{ marginTop: 8 }}>
-        {open && deliveryId && <TaskUpdateView deliveryId={deliveryId} onActed={() => onActed?.()} />}
+        {open && deliveryId && (
+          <TaskUpdateView key={deliveryId} deliveryId={deliveryId} onActed={() => onActed?.()} />
+        )}
       </div>
     </Modal>
   );

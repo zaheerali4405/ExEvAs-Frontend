@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { Badge, Dropdown, Button, List, Typography, Empty } from "antd";
 import { BellOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
@@ -13,20 +13,22 @@ export default function NotificationBell() {
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
 
-  const load = useCallback(async () => {
-    try {
-      const { data } = await getMyNotifications();
-      setItems(data);
-    } catch {
-      // Silent — the bell is a convenience surface, not a critical path.
-    }
-  }, []);
-
+  // Polls on a timer; each response lands in state from its own callback.
   useEffect(() => {
-    load();
-    const interval = setInterval(load, POLL_INTERVAL_MS);
-    return () => clearInterval(interval);
-  }, [load]);
+    let ignore = false;
+    const poll = () =>
+      getMyNotifications()
+        .then(({ data }) => { if (!ignore) setItems(data); })
+        .catch(() => {
+          // Silent — the bell is a convenience surface, not a critical path.
+        });
+    poll();
+    const interval = setInterval(poll, POLL_INTERVAL_MS);
+    return () => {
+      ignore = true;
+      clearInterval(interval);
+    };
+  }, []);
 
   const unreadCount = items.filter((i) => !i.isRead).length;
   const recent = items.slice(0, 5);

@@ -20,7 +20,8 @@ import {
   OFFSET_DIRECTION_OPTIONS, OFFSET_UNIT_OPTIONS, TASK_SCOPE_OPTIONS, SERIES_ANCHOR_OPTIONS,
   describeOffset, describeGracePeriod,
 } from "../../utils/offsets";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/useAuth";
+import { loadOptions } from "../../utils/loadOptions";
 
 const { Text } = Typography;
 
@@ -105,6 +106,15 @@ export default function TaskTemplatesList() {
   const [searchBy, setSearchBy] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  // The filters live in the URL, so they can change without passing through
+  // a handler here (Back, or a link from another page). Back to the first
+  // page whenever they do, adjusted during render rather than in an effect.
+  const filterKey = `${workflowFilter}|${activityFilter}`;
+  const [pagedFilterKey, setPagedFilterKey] = useState(filterKey);
+  if (pagedFilterKey !== filterKey) {
+    setPagedFilterKey(filterKey);
+    setCurrentPage(1);
+  }
   const [pageSize, setPageSize] = useState(10);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalLoading, setModalLoading] = useState(false);
@@ -118,29 +128,18 @@ export default function TaskTemplatesList() {
   const isSeries = scope === "per_series";
 
   useEffect(() => {
-    (async () => {
-      setLoading(true);
-      setError("");
-      try {
-        const { data } = await getTaskTemplates();
-        setTemplates(data);
-      } catch (err) {
-        setError(err.response?.data?.message || "Could not load task templates.");
-      } finally {
-        setLoading(false);
-      }
-      if (can("activity.read-all")) {
-        try { const { data } = await getActivities(); setActivities(data); } catch { /* dropdowns fall back to the templates' own */ }
-      }
-      if (can("workflow.read-all")) {
-        try { const { data } = await getWorkflows(); setWorkflows(data); } catch { /* dropdowns fall back to the templates' own */ }
-      }
-      if (can("designation.read-all")) {
-        try { const { data } = await getDesignations(); setDesignations(data); } catch { /* assignee dropdown stays empty */ }
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    let ignore = false;
+    const isStale = () => ignore;
+    getTaskTemplates()
+      .then(({ data }) => { if (!ignore) setTemplates(data); })
+      .catch((err) => { if (!ignore) setError(err.response?.data?.message || "Could not load task templates."); })
+      .finally(() => { if (!ignore) setLoading(false); });
+    // Without activities or workflows the filter dropdowns fall back to the templates' own.
+    loadOptions(can("activity.read-all"), getActivities, setActivities, isStale);
+    loadOptions(can("workflow.read-all"), getWorkflows, setWorkflows, isStale);
+    loadOptions(can("designation.read-all"), getDesignations, setDesignations, isStale);
+    return () => { ignore = true; };
+  }, [can]);
 
   // ── Filters ──
 
@@ -204,8 +203,6 @@ export default function TaskTemplatesList() {
       return String(getFieldValue(item, searchBy)).toLowerCase().includes(term);
     });
   }, [templates, workflowFilter, activityFilter, searchBy, searchTerm]);
-
-  useEffect(() => { setCurrentPage(1); }, [searchTerm, searchBy, pageSize, workflowFilter, activityFilter]);
 
   // ── The form's choices ──
 
@@ -517,14 +514,14 @@ export default function TaskTemplatesList() {
             allowClear
             options={searchableColumns}
             value={searchBy}
-            onChange={(val) => setSearchBy(val ?? null)}
+            onChange={(val) => { setSearchBy(val ?? null); setCurrentPage(1); }}
             style={{ width: "100%" }}
           />
           <Input
             placeholder="Search..."
             allowClear
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
             style={{ width: "auto" }}
           />
           <Button icon={<DownloadOutlined />} onClick={handleExport} style={{ width: "100%" }}>
@@ -549,7 +546,7 @@ export default function TaskTemplatesList() {
                 <Select
                   value={pageSize}
                   options={PAGE_SIZE_OPTIONS.map((n) => ({ value: n, label: `${n}` }))}
-                  onChange={(val) => setPageSize(val)}
+                  onChange={(val) => { setPageSize(val); setCurrentPage(1); }}
                   style={{ cursor: "pointer" }}
                 />
                 <span style={{ fontSize: 14, color: "#595959" }}>Entries</span>

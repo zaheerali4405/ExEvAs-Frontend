@@ -12,81 +12,98 @@ import {
 } from "../../api/userDesignationsApi";
 import { getUsers } from "../../api/usersApi";
 import { getDesignations } from "../../api/designationsApi";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/useAuth";
 
 const { Text } = Typography;
 
+const NO_ASSIGNMENTS = {};
+
 export default function UserDesignationsList() {
   const [searchParams] = useSearchParams();
+  const paramUserId = searchParams.get("userId");
   const { can } = useAuth();
 
   const [users, setUsers] = useState([]);
   const [allDesignations, setAllDesignations] = useState([]);
 
-  // assignedMap: designationId -> { id, isMain }
-  const [assignedMap, setAssignedMap] = useState({});
+  // map: designationId -> { id, isMain }, tagged with the user it was loaded
+  // for, so a stale map is never shown against a different selection and
+  // "still loading" can be read off the mismatch.
+  const [assigned, setAssigned] = useState({ userId: null, map: NO_ASSIGNMENTS });
 
   const [selectedUserId, setSelectedUserId] = useState(null);
   const [loadingBase, setLoadingBase] = useState(true);
-  const [loadingAssigned, setLoadingAssigned] = useState(false);
   const [togglingIds, setTogglingIds] = useState(new Set());   // designationIds being assigned/unassigned
   const [settingMainId, setSettingMainId] = useState(null);    // designationId being set as main
   const [error, setError] = useState("");
 
+  const assignedMap = assigned.userId === selectedUserId ? assigned.map : NO_ASSIGNMENTS;
+  const loadingAssigned = !!selectedUserId && assigned.userId !== selectedUserId;
+
+  // Changes to the selected user's map are dropped if the selection has
+  // moved on since the request went out.
+  const updateAssignedMap = (userId, update) =>
+    setAssigned((prev) => (prev.userId === userId ? { ...prev, map: update(prev.map) } : prev));
+
   useEffect(() => {
-    (async () => {
-      setLoadingBase(true);
-      try {
-        const [usersRes, desRes] = await Promise.all([getUsers(), getDesignations()]);
+    let ignore = false;
+    Promise.all([getUsers(), getDesignations()])
+      .then(([usersRes, desRes]) => {
+        if (ignore) return;
         setUsers(usersRes.data);
         setAllDesignations(desRes.data);
-
-        const paramId = searchParams.get("userId");
-        if (paramId) {
-          const match = usersRes.data.find((u) => String(u.id) === String(paramId));
+        if (paramUserId) {
+          const match = usersRes.data.find((u) => String(u.id) === String(paramUserId));
           if (match) setSelectedUserId(match.id);
         }
-      } catch {
-        setError("Could not load users or designations.");
-      } finally {
-        setLoadingBase(false);
-      }
-    })();
-  }, []);
+      })
+      .catch(() => {
+        if (!ignore) setError("Could not load users or designations.");
+      })
+      .finally(() => {
+        if (!ignore) setLoadingBase(false);
+      });
+    return () => { ignore = true; };
+  }, [paramUserId]);
 
   useEffect(() => {
-    if (!selectedUserId) { setAssignedMap({}); return; }
-    (async () => {
-      setLoadingAssigned(true);
-      setError("");
-      try {
-        const { data } = await getUserDesignations(selectedUserId);
-        // Build map: designationId -> { id, isMain }
+    if (!selectedUserId) return;
+    let ignore = false;
+    getUserDesignations(selectedUserId)
+      .then(({ data }) => {
+        if (ignore) return;
         const map = {};
         data.forEach((r) => { map[r.designationId] = { id: r.id, isMain: r.isMain }; });
-        setAssignedMap(map);
-      } catch (err) {
+        setAssigned({ userId: selectedUserId, map });
+      })
+      .catch((err) => {
+        if (ignore) return;
         setError(err.response?.data?.message || "Could not load assigned designations.");
-      } finally {
-        setLoadingAssigned(false);
-      }
-    })();
+        setAssigned({ userId: selectedUserId, map: NO_ASSIGNMENTS });
+      });
+    return () => { ignore = true; };
   }, [selectedUserId]);
+
+  const handleUserChange = (val) => {
+    setError("");
+    setSelectedUserId(val ?? null);
+  };
 
   const handleToggle = async (designationId, checked) => {
     setTogglingIds((prev) => new Set(prev).add(designationId));
     setError("");
+    const userId = selectedUserId;
     try {
       if (checked) {
-        const { data } = await assignDesignationToUser(selectedUserId, designationId);
-        setAssignedMap((prev) => ({
-          ...prev,
+        const { data } = await assignDesignationToUser(userId, designationId);
+        updateAssignedMap(userId, (map) => ({
+          ...map,
           [designationId]: { id: data.id, isMain: data.isMain },
         }));
       } else {
-        await unassignDesignationFromUser(selectedUserId, designationId);
-        setAssignedMap((prev) => {
-          const next = { ...prev };
+        await unassignDesignationFromUser(userId, designationId);
+        updateAssignedMap(userId, (map) => {
+          const next = { ...map };
           delete next[designationId];
           return next;
         });
@@ -105,12 +122,13 @@ export default function UserDesignationsList() {
   const handleSetMain = async (designationId) => {
     setSettingMainId(designationId);
     setError("");
+    const userId = selectedUserId;
     try {
-      await setMainDesignation(selectedUserId, designationId);
+      await setMainDesignation(userId, designationId);
       // Update isMain in map: demote old main, promote new one
-      setAssignedMap((prev) => {
+      updateAssignedMap(userId, (map) => {
         const next = {};
-        Object.entries(prev).forEach(([dId, val]) => {
+        Object.entries(map).forEach(([dId, val]) => {
           next[dId] = { ...val, isMain: Number(dId) === Number(designationId) };
         });
         return next;
@@ -245,7 +263,7 @@ export default function UserDesignationsList() {
               loading={loadingBase}
               options={userOptions}
               value={selectedUserId}
-              onChange={(val) => setSelectedUserId(val ?? null)}
+              onChange={handleUserChange}
               style={{ width: "100%", maxWidth: 400 }}
               allowClear
               showSearch

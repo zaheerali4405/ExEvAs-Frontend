@@ -1,6 +1,6 @@
 import { Typography } from 'antd';
 import DashboardLayout from '../layouts/DashboardLayout';
-import { useAuth } from '../context/AuthContext';
+import { useAuth } from '../context/useAuth';
 
 const { Title, Text } = Typography;
 

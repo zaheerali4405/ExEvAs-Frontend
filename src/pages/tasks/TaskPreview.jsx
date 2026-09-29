@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import {
   Tag, Typography, Button, Select, Input, Alert, Spin, Space, Avatar, Modal, message, theme,
 } from "antd";
@@ -7,7 +7,7 @@ import {
   getTask, changeTaskStatus, cancelTask, pauseTask, resumeTask, adminReassignTask, getTaskDesignationOptions,
 } from "../../api/tasksApi";
 import { TASK_STATUS_LABELS, TASK_STATUS_COLORS } from "../../utils/taskStatus";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/useAuth";
 import TaskDetailsSections from "./TaskDetailsSections";
 import TaskStatusControl from "./TaskStatusControl";
 import { TaskHistoryTimeline } from "./TaskHistory";
@@ -29,12 +29,13 @@ const initials = (name) =>
 // with the step control for its status under the title; mode "admin" shows who holds the task
 // and the admin's actions — re-assign, hold or resume, cancel — each allowed
 // by its own permission. onChanged is told the refreshed task after any
-// change, so the list can update that row.
+// change, so the list can update that row. Both pages key it by taskId, so
+// showing a different task starts from fresh state.
 export default function TaskPreview({ taskId, mode, onChanged }) {
   const { token } = theme.useToken();
   const { can } = useAuth();
   const [task, setTask] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -44,24 +45,14 @@ export default function TaskPreview({ taskId, mode, onChanged }) {
   const [target, setTarget] = useState(null);
   const [reassignComment, setReassignComment] = useState("");
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const { data } = await getTask(taskId);
-      setTask(data);
-    } catch (err) {
-      setError(err.response?.data?.message || "Could not load this task.");
-    } finally {
-      setLoading(false);
-    }
-  }, [taskId]);
-
   useEffect(() => {
-    setTask(null);
-    setReassigning(false);
-    load();
-  }, [load]);
+    let ignore = false;
+    getTask(taskId)
+      .then(({ data }) => { if (!ignore) setTask(data); })
+      .catch((err) => { if (!ignore) setError(err.response?.data?.message || "Could not load this task."); })
+      .finally(() => { if (!ignore) setLoading(false); });
+    return () => { ignore = true; };
+  }, [taskId]);
 
   const done = (data) => {
     setTask(data);

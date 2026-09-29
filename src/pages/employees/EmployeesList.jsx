@@ -31,7 +31,8 @@ import { getDepartments } from "../../api/departmentsApi";
 import { getDesignations } from "../../api/designationsApi";
 import { exportToExcel } from "../../utils/exportExcel";
 import { infoTip } from "../../utils/formTooltip";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/useAuth";
+import { loadOptions } from "../../utils/loadOptions";
 
 const { Text } = Typography;
 
@@ -91,38 +92,16 @@ export default function EmployeesList() {
   const [form] = Form.useForm();
 
   useEffect(() => {
-    (async () => {
-      setLoading(true);
-      setError("");
-      try {
-        const { data } = await getEmployees();
-        setEmployees(data);
-      } catch (err) {
-        setError(err.response?.data?.message || "Could not load employees.");
-      } finally {
-        setLoading(false);
-      }
-
-      if (can("department.read-all")) {
-        try {
-          const { data } = await getDepartments();
-          setDepartments(data);
-        } catch {
-          // Non-fatal: the department dropdown just stays empty.
-        }
-      }
-
-      if (can("designation.read-all")) {
-        try {
-          const { data } = await getDesignations();
-          setDesignations(data);
-        } catch {
-          // Non-fatal: the designation dropdown just stays empty.
-        }
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    let ignore = false;
+    const isStale = () => ignore;
+    getEmployees()
+      .then(({ data }) => { if (!ignore) setEmployees(data); })
+      .catch((err) => { if (!ignore) setError(err.response?.data?.message || "Could not load employees."); })
+      .finally(() => { if (!ignore) setLoading(false); });
+    loadOptions(can("department.read-all"), getDepartments, setDepartments, isStale);
+    loadOptions(can("designation.read-all"), getDesignations, setDesignations, isStale);
+    return () => { ignore = true; };
+  }, [can]);
 
   const filtered = useMemo(() => {
     if (!searchTerm.trim()) return employees;
@@ -135,10 +114,6 @@ export default function EmployeesList() {
       return String(getFieldValue(item, searchBy)).toLowerCase().includes(term);
     });
   }, [employees, searchBy, searchTerm]);
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm, searchBy, pageSize]);
 
   const handleToggle = (record) => {
     const activate = !record.isActive;
@@ -361,14 +336,14 @@ export default function EmployeesList() {
             allowClear
             options={searchableColumns}
             value={searchBy}
-            onChange={(val) => setSearchBy(val ?? null)}
+            onChange={(val) => { setSearchBy(val ?? null); setCurrentPage(1); }}
             style={{ width: "100%" }}
           />
           <Input
             placeholder="Search..."
             allowClear
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
             style={{ width: "auto" }}
           />
           <Button
@@ -403,7 +378,7 @@ export default function EmployeesList() {
                     value: n,
                     label: `${n}`,
                   }))}
-                  onChange={(val) => setPageSize(val)}
+                  onChange={(val) => { setPageSize(val); setCurrentPage(1); }}
                   style={{ cursor: "pointer" }}
                 />
                 <span style={{ fontSize: 14, color: "#595959" }}>Entries</span>

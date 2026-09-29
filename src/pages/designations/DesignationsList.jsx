@@ -10,7 +10,7 @@ import PageCard from "../../components/PageCard";
 import { getDesignations, createDesignation, updateDesignation, setDesignationStatus } from "../../api/designationsApi";
 import { exportToExcel } from "../../utils/exportExcel";
 import { infoTip } from "../../utils/formTooltip";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/useAuth";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -53,20 +53,30 @@ export default function DesignationsList() {
   const [editingRecord, setEditingRecord] = useState(null);
   const [form] = Form.useForm();
 
-  const fetchDesignations = async () => {
+  const loadErrorMessage = (err) => err.response?.data?.message || "Could not load designations.";
+
+  useEffect(() => {
+    let ignore = false;
+    getDesignations()
+      .then(({ data }) => { if (!ignore) setDesignations(data); })
+      .catch((err) => { if (!ignore) setError(loadErrorMessage(err)); })
+      .finally(() => { if (!ignore) setLoading(false); });
+    return () => { ignore = true; };
+  }, []);
+
+  // Reload after an edit (see handleModalFinish).
+  const reloadDesignations = async () => {
     setLoading(true);
     setError("");
     try {
       const { data } = await getDesignations();
       setDesignations(data);
     } catch (err) {
-      setError(err.response?.data?.message || "Could not load designations.");
+      setError(loadErrorMessage(err));
     } finally {
       setLoading(false);
     }
   };
-
-  useEffect(() => { fetchDesignations(); }, []);
 
   const filtered = useMemo(() => {
     if (!searchTerm.trim()) return designations;
@@ -80,8 +90,6 @@ export default function DesignationsList() {
       return String(getFieldValue(item, searchBy)).toLowerCase().includes(term);
     });
   }, [designations, searchBy, searchTerm]);
-
-  useEffect(() => { setCurrentPage(1); }, [searchTerm, searchBy, pageSize]);
 
   const handleToggle = (designation) => {
     const activate = !designation.isActive;
@@ -134,7 +142,7 @@ export default function DesignationsList() {
         await updateDesignation(editingRecord.id, payload);
         // Reloaded rather than patched in place: renaming a designation
         // changes the Reports To shown on every row beneath it.
-        await fetchDesignations();
+        await reloadDesignations();
       } else {
         const { data } = await createDesignation(payload);
         setDesignations((prev) => [...prev, data]);
@@ -284,14 +292,14 @@ export default function DesignationsList() {
             allowClear
             options={searchableColumns}
             value={searchBy}
-            onChange={(val) => setSearchBy(val ?? null)}
+            onChange={(val) => { setSearchBy(val ?? null); setCurrentPage(1); }}
             style={{ width: "100%" }}
           />
           <Input
             placeholder="Search..."
             allowClear
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
             style={{ width: "auto" }}
           />
           <Button icon={<DownloadOutlined />} onClick={handleExport} style={{ width: "100%" }}>
@@ -316,7 +324,7 @@ export default function DesignationsList() {
                 <Select
                   value={pageSize}
                   options={PAGE_SIZE_OPTIONS.map((n) => ({ value: n, label: `${n}` }))}
-                  onChange={(val) => setPageSize(val)}
+                  onChange={(val) => { setPageSize(val); setCurrentPage(1); }}
                   style={{ cursor: "pointer" }}
                 />
                 <span style={{ fontSize: 14, color: "#595959" }}>Entries</span>

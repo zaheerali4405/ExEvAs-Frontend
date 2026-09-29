@@ -5,7 +5,7 @@ import dayjs from "dayjs";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import PageCard from "../../components/PageCard";
 import { getModerationMeetings, updateModerationMeeting } from "../../api/moderationMeetingsApi";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/useAuth";
 import ModerationMeetingFormModal from "./ModerationMeetingFormModal";
 
 const { Title, Text } = Typography;

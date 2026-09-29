@@ -6,7 +6,7 @@ import {
 } from "../../api/moderationMeetingsApi";
 import { getCoursePapers } from "../../api/coursePapersApi";
 import { getClasses } from "../../api/classesApi";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/useAuth";
 
 const STATUS_OPTIONS = [
   { value: "hold",        label: "Hold" },
@@ -99,7 +99,6 @@ export default function ModerationMeetingFormModal({ open, editingRecord, initia
       form.resetFields();
       form.setFieldsValue({ eventDate: initialDate || undefined });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editingRecord, initialDate, classes, form]);
 
   // Same as Class.fullName, but with the program's short name instead of its

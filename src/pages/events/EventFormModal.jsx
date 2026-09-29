@@ -10,8 +10,9 @@ import { getExamCategories } from "../../api/examCategoriesApi";
 import { getExamCategoryRules } from "../../api/examCategoryRulesApi";
 import { rulesForPair, anyScopeAllows } from "../../utils/examRules";
 import { infoTip } from "../../utils/formTooltip";
+import { loadOptions } from "../../utils/loadOptions";
 import { getExamTypes } from "../../api/examTypesApi";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/useAuth";
 
 const { RangePicker } = DatePicker;
 
@@ -81,59 +82,28 @@ export default function EventFormModal({ open, editingRecord, initialDate, exist
 
   useEffect(() => {
     if (!open) return;
-    (async () => {
-      if (can("course-paper.read-all")) {
-        try {
-          const { data } = await getCoursePapers();
-          setCoursePapers(data);
-        } catch {
-          // Non-fatal: every downstream dropdown just stays empty.
-        }
-      }
-      if (can("class.read-all")) {
-        try {
-          const { data } = await getClasses();
-          setClasses(data);
-        } catch {
-          // Non-fatal: the class dropdown just stays empty.
-        }
-      }
-      try {
-        const [categoriesRes, rulesRes] = await Promise.all([
-          getExamCategories(), getExamCategoryRules(),
-        ]);
+    let ignore = false;
+    const isStale = () => ignore;
+    // Without course/papers every downstream dropdown just stays empty.
+    loadOptions(can("course-paper.read-all"), getCoursePapers, setCoursePapers, isStale);
+    loadOptions(can("class.read-all"), getClasses, setClasses, isStale);
+    // Categories and their rules arrive together or not at all.
+    Promise.all([getExamCategories(), getExamCategoryRules()])
+      .then(([categoriesRes, rulesRes]) => {
+        if (ignore) return;
         setExamCategories(categoriesRes.data);
         setPairRules(rulesRes.data);
-      } catch {
+      })
+      .catch(() => {
         // Non-fatal: the category dropdown just stays empty.
-      }
-      try {
-        const { data } = await getExamTypes();
-        setAllExamTypes(data);
-      } catch {
-        // Non-fatal: the standalone exam type dropdown just stays empty.
-      }
-      // Only a standalone exam picks these directly — a normal exam derives
-      // both from its course/papers.
-      if (can("program.read-all")) {
-        try {
-          const { data } = await getPrograms();
-          setPrograms(data);
-        } catch {
-          // Non-fatal: the program dropdown just stays empty.
-        }
-      }
-      if (can("department.read-all")) {
-        try {
-          const { data } = await getDepartments();
-          setDepartments(data);
-        } catch {
-          // Non-fatal: the department dropdown just stays empty.
-        }
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+      });
+    loadOptions(true, getExamTypes, setAllExamTypes, isStale);
+    // Only a standalone exam picks these directly — a normal exam derives
+    // both from its course/papers.
+    loadOptions(can("program.read-all"), getPrograms, setPrograms, isStale);
+    loadOptions(can("department.read-all"), getDepartments, setDepartments, isStale);
+    return () => { ignore = true; };
+  }, [open, can]);
 
   // Kept only so an already-existing non-academic event (created back when
   // Exam Scope carried a Course/Paper-linking flag) still displays and edits
@@ -203,10 +173,15 @@ export default function EventFormModal({ open, editingRecord, initialDate, exist
     () => activeClasses.find((c) => c.id === selectedClassId) ?? null,
     [activeClasses, selectedClassId]
   );
-  const selectedCategory = useMemo(
-    () => activeCategories.find((c) => c.id === selectedCategoryId) ?? null,
-    [activeCategories, selectedCategoryId]
-  );
+
+  // Every open starts on the normal (non-standalone) tab. Adjusted during
+  // render on the closed-to-open change rather than in the effect below,
+  // which only fills in the form.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (wasOpen !== open) {
+    setWasOpen(open);
+    if (open) setFormMode("normal");
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -238,7 +213,6 @@ export default function EventFormModal({ open, editingRecord, initialDate, exist
       });
     } else {
       form.resetFields();
-      setFormMode("normal");
       form.setFieldsValue({
         eventDate: initialDate || undefined,
         dateRange: initialDate ? [initialDate, initialDate] : undefined,
@@ -553,10 +527,7 @@ export default function EventFormModal({ open, editingRecord, initialDate, exist
     () => allExamTypes.find((et) => et.id === selectedExamTypeId)?.examScopeId,
     [allExamTypes, selectedExamTypeId]
   );
-  const selectedRules = useMemo(
-    () => rulesForPair(pairRules, selectedCategoryId, selectedScopeId),
-    [pairRules, selectedCategoryId, selectedScopeId]
-  );
+  const selectedRules = rulesForPair(pairRules, selectedCategoryId, selectedScopeId);
 
   const title = editingRecord ? "Edit Event" : "Add Event";
   // External/Contract Based events have no category and so no time slot,

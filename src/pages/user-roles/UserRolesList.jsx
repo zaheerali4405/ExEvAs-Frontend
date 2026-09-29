@@ -6,84 +6,90 @@ import PageCard from "../../components/PageCard";
 import { getUserRoles, assignRoleToUser, unassignRoleFromUser } from "../../api/userRolesApi";
 import { getUsers } from "../../api/usersApi";
 import { getRoles } from "../../api/rolesApi";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/useAuth";
 
 const { Text } = Typography;
 
+const NO_IDS = new Set();
+
 export default function UserRolesList() {
   const [searchParams] = useSearchParams();
+  const paramUserId = searchParams.get("userId");
   const { can } = useAuth();
 
   const [users, setUsers] = useState([]);
   const [allRoles, setAllRoles] = useState([]);
-  const [assignedIds, setAssignedIds] = useState(new Set());
-  const [assignedRecords, setAssignedRecords] = useState([]);
+  // Tagged with the user they were loaded for, so a stale set is never shown
+  // against a different selection and "still loading" can be read off the
+  // mismatch.
+  const [assigned, setAssigned] = useState({ userId: null, ids: NO_IDS });
 
   const [selectedUserId, setSelectedUserId] = useState(null);
   const [loadingBase, setLoadingBase] = useState(true);
-  const [loadingAssigned, setLoadingAssigned] = useState(false);
   const [togglingIds, setTogglingIds] = useState(new Set());
   const [error, setError] = useState("");
 
+  const assignedIds = assigned.userId === selectedUserId ? assigned.ids : NO_IDS;
+  const loadingAssigned = !!selectedUserId && assigned.userId !== selectedUserId;
+
   useEffect(() => {
-    (async () => {
-      setLoadingBase(true);
-      try {
-        const [usersRes, rolesRes] = await Promise.all([getUsers(), getRoles()]);
+    let ignore = false;
+    Promise.all([getUsers(), getRoles()])
+      .then(([usersRes, rolesRes]) => {
+        if (ignore) return;
         setUsers(usersRes.data);
         setAllRoles(rolesRes.data);
-
-        const paramId = searchParams.get("userId");
-        if (paramId) {
-          const match = usersRes.data.find((u) => String(u.id) === String(paramId));
+        if (paramUserId) {
+          const match = usersRes.data.find((u) => String(u.id) === String(paramUserId));
           if (match) setSelectedUserId(match.id);
         }
-      } catch {
-        setError("Could not load users or roles.");
-      } finally {
-        setLoadingBase(false);
-      }
-    })();
-  }, []);
+      })
+      .catch(() => {
+        if (!ignore) setError("Could not load users or roles.");
+      })
+      .finally(() => {
+        if (!ignore) setLoadingBase(false);
+      });
+    return () => { ignore = true; };
+  }, [paramUserId]);
 
   useEffect(() => {
-    if (!selectedUserId) {
-      setAssignedIds(new Set());
-      setAssignedRecords([]);
-      return;
-    }
-    (async () => {
-      setLoadingAssigned(true);
-      setError("");
-      try {
-        const { data } = await getUserRoles(selectedUserId);
-        setAssignedRecords(data);
-        setAssignedIds(new Set(data.map((r) => r.roleId)));
-      } catch (err) {
+    if (!selectedUserId) return;
+    let ignore = false;
+    getUserRoles(selectedUserId)
+      .then(({ data }) => {
+        if (!ignore) setAssigned({ userId: selectedUserId, ids: new Set(data.map((r) => r.roleId)) });
+      })
+      .catch((err) => {
+        if (ignore) return;
         setError(err.response?.data?.message || "Could not load assigned roles.");
-      } finally {
-        setLoadingAssigned(false);
-      }
-    })();
+        setAssigned({ userId: selectedUserId, ids: NO_IDS });
+      });
+    return () => { ignore = true; };
   }, [selectedUserId]);
+
+  const handleUserChange = (val) => {
+    setError("");
+    setSelectedUserId(val ?? null);
+  };
 
   const handleToggle = async (roleId, checked) => {
     setTogglingIds((prev) => new Set(prev).add(roleId));
     setError("");
+    const userId = selectedUserId;
     try {
       if (checked) {
-        const { data } = await assignRoleToUser(selectedUserId, roleId);
-        setAssignedRecords((prev) => [...prev, data]);
-        setAssignedIds((prev) => new Set(prev).add(roleId));
+        await assignRoleToUser(userId, roleId);
       } else {
-        await unassignRoleFromUser(selectedUserId, roleId);
-        setAssignedRecords((prev) => prev.filter((r) => r.roleId !== roleId));
-        setAssignedIds((prev) => {
-          const next = new Set(prev);
-          next.delete(roleId);
-          return next;
-        });
+        await unassignRoleFromUser(userId, roleId);
       }
+      setAssigned((prev) => {
+        if (prev.userId !== userId) return prev;
+        const ids = new Set(prev.ids);
+        if (checked) ids.add(roleId);
+        else ids.delete(roleId);
+        return { ...prev, ids };
+      });
     } catch (err) {
       setError(err.response?.data?.message || "Could not update role assignment.");
     } finally {
@@ -182,7 +188,7 @@ export default function UserRolesList() {
               loading={loadingBase}
               options={userOptions}
               value={selectedUserId}
-              onChange={(val) => setSelectedUserId(val ?? null)}
+              onChange={handleUserChange}
               style={{ width: "100%", maxWidth: 400 }}
               allowClear
               showSearch

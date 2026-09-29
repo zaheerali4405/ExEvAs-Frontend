@@ -11,7 +11,7 @@ import dayjs from "dayjs";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import PageCard from "../../components/PageCard";
 import { getSystemSettings, updateSystemSettings } from "../../api/systemSettingsApi";
-import { useTheme } from "../../context/ThemeContext";
+import { useTheme } from "../../context/useTheme";
 
 const { Title, Text } = Typography;
 

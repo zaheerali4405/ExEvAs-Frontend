@@ -6,7 +6,7 @@ import PageCard from "../../components/PageCard";
 import { getExamCategories } from "../../api/examCategoriesApi";
 import { getExamScopes } from "../../api/examScopesApi";
 import { getExamCategoryRules, setExamCategoryRule } from "../../api/examCategoryRulesApi";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/useAuth";
 
 const { Text } = Typography;
 

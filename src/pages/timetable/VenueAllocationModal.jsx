@@ -6,7 +6,7 @@ import { getVenues } from "../../api/venuesApi";
 import { getClassStrength } from "../../api/classesApi";
 import { getEventVenues, assignEventVenue, updateEventVenue, unassignEventVenue } from "../../api/eventVenuesApi";
 import { getEvent, updateEventTime } from "../../api/eventsApi";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/useAuth";
 
 const { Text } = Typography;
 
@@ -107,21 +107,15 @@ export default function VenueAllocationModal({ open, date, events, onCancel, onE
   const [modalError, setModalError] = useState("");
   const [venues, setVenues] = useState([]);
   const [venuesById, setVenuesById] = useState(new Map());
-  const [loadingVenues, setLoadingVenues] = useState(true);
   const [eventVenuesByEventId, setEventVenuesByEventId] = useState({});
   const [strengthByClass, setStrengthByClass] = useState({});
-  const [loadingPlacements, setLoadingPlacements] = useState(true);
-  // Latches false once the modal has content, so a background refresh never
-  // swaps the whole body back to a spinner mid-scheduling. Driven by the
-  // fetches themselves rather than by watching the loading flags — on
-  // reopen those still read false from the previous open for one pass, which
-  // cleared this too early and left the grid unscrolled.
-  const [initialLoading, setInitialLoading] = useState(true);
-  const venuesDoneRef = useRef(false);
-  const placementsDoneRef = useRef(false);
-  const markLoadedIfReady = () => {
-    if (venuesDoneRef.current && placementsDoneRef.current) setInitialLoading(false);
-  };
+  // Each open is a fresh mount (the Datesheet keys this modal per opening),
+  // so these start false every time and only ever turn true.
+  const [venuesLoaded, setVenuesLoaded] = useState(false);
+  const [placementsLoaded, setPlacementsLoaded] = useState(false);
+  // Latches once the modal has content, so a background refresh never swaps
+  // the whole body back to a spinner mid-scheduling.
+  const [hasLoaded, setHasLoaded] = useState(false);
   // Positions the grid at 07:30 once per open — not on every dependency
   // change, or dropping an untimed event would yank the view back.
   const didInitialScrollRef = useRef(false);
@@ -159,24 +153,31 @@ export default function VenueAllocationModal({ open, date, events, onCancel, onE
     );
   }, [events, dateStr]);
 
+  // A day with no exams has no placements to fetch, so they count as loaded.
+  // Adjusted during render rather than in an effect.
+  if (!hasLoaded && venuesLoaded && (placementsLoaded || dayEvents.length === 0)) {
+    setHasLoaded(true);
+  }
+
   useEffect(() => {
     if (!open) return;
-    setLoadingVenues(true);
+    let ignore = false;
     getVenues()
       .then(({ data }) => {
+        if (ignore) return;
         const active = data.filter((v) => v.isActive && (v.category === "static" || v.category === "mobile"));
         const staticVenues = active.filter((v) => v.category === "static").sort((a, b) => a.name.localeCompare(b.name));
         const mobileVenues = active.filter((v) => v.category === "mobile").sort((a, b) => a.name.localeCompare(b.name));
         setVenues([...staticVenues, ...mobileVenues]);
         setVenuesById(new Map(active.map((v) => [v.id, v])));
       })
-      .catch(() => setModalError("Could not load venues."))
+      .catch(() => {
+        if (!ignore) setModalError("Could not load venues.");
+      })
       .finally(() => {
-        setLoadingVenues(false);
-        venuesDoneRef.current = true;
-        markLoadedIfReady();
+        if (!ignore) setVenuesLoaded(true);
       });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => { ignore = true; };
   }, [open]);
 
   // Fresh every time the modal opens (or the day's own event list changes) —
@@ -190,33 +191,38 @@ export default function VenueAllocationModal({ open, date, events, onCancel, onE
     () => dayEvents.map((e) => e.id).sort((a, b) => a - b).join(","),
     [dayEvents]
   );
-
-  useEffect(() => {
-    if (!open) return;
-    if (dayEvents.length === 0) {
-      setEventVenuesByEventId({});
-      setStrengthByClass({});
-      setLoadingPlacements(false);
-      placementsDoneRef.current = true;
-      markLoadedIfReady();
-      return;
-    }
-    setLoadingPlacements(true);
-    (async () => {
-      const venueEntries = await Promise.all(
-        dayEvents.map((ev) => getEventVenues(ev.id).then(({ data }) => [ev.id, data]).catch(() => [ev.id, []]))
-      );
-      setEventVenuesByEventId(Object.fromEntries(venueEntries));
-
-      // A standalone exam has no class, so there is no strength to fetch —
-      // it carries its own expected candidate count instead.
-      const classKeys = Array.from(
+  // The day's classes, keyed the same way. A standalone exam has no class,
+  // so there is no strength to fetch — it carries its own expected
+  // candidate count instead.
+  const dayClassKeys = useMemo(
+    () =>
+      Array.from(
         new Set(
           dayEvents
             .filter((ev) => ev.programId != null && ev.degreeLevelId != null && ev.sessionId != null)
             .map((ev) => `${ev.programId}-${ev.degreeLevelId}-${ev.sessionId}`)
         )
+      )
+        .sort()
+        .join(","),
+    [dayEvents]
+  );
+
+  // With no exams on the day there is nothing to fetch. Anything left over
+  // from exams that have since moved off the day is harmless: both maps are
+  // only ever read for the day's current exams.
+  useEffect(() => {
+    if (!open || !dayEventIdsKey) return;
+    let ignore = false;
+    const eventIds = dayEventIdsKey.split(",").map(Number);
+    const classKeys = dayClassKeys ? dayClassKeys.split(",") : [];
+    (async () => {
+      const venueEntries = await Promise.all(
+        eventIds.map((id) => getEventVenues(id).then(({ data }) => [id, data]).catch(() => [id, []]))
       );
+      if (ignore) return;
+      setEventVenuesByEventId(Object.fromEntries(venueEntries));
+
       const strengthEntries = await Promise.all(
         classKeys.map((key) => {
           const [programId, degreeLevelId, sessionId] = key.split("-").map(Number);
@@ -225,31 +231,12 @@ export default function VenueAllocationModal({ open, date, events, onCancel, onE
             .catch(() => [key, 0]);
         })
       );
+      if (ignore) return;
       setStrengthByClass(Object.fromEntries(strengthEntries));
-      setLoadingPlacements(false);
-      placementsDoneRef.current = true;
-      markLoadedIfReady();
+      setPlacementsLoaded(true);
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, dayEventIdsKey]);
-
-  useEffect(() => {
-    if (!open) {
-      setInitialLoading(true);
-      venuesDoneRef.current = false;
-      placementsDoneRef.current = false;
-      didInitialScrollRef.current = false;
-      setSeatsDraft({});
-      setDragged(null);
-      setResizingId(null);
-      setLiveResize(null);
-      setEditingSeatsId(null);
-      setManualSplit({});
-      setSplitOpen(true);
-      setModalError("");
-    }
-  }, [open]);
+    return () => { ignore = true; };
+  }, [open, dayEventIdsKey, dayClassKeys]);
 
   const classKeyOf = (ev) => `${ev.programId}-${ev.degreeLevelId}-${ev.sessionId}`;
 
@@ -281,7 +268,6 @@ export default function VenueAllocationModal({ open, date, events, onCancel, onE
         endMin: isLive ? liveResize.endMin : timeToMinutes(ev.endTime),
       };
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dayEvents, eventVenuesByEventId, strengthByClass, resizingId, liveResize]);
 
   // One entry per (event, venue) rather than per event — a split exam holds
@@ -687,7 +673,7 @@ export default function VenueAllocationModal({ open, date, events, onCancel, onE
   };
 
   const hasUntimedPlaced = venues.some((v) => (placedByVenueId[v.id] || []).some((ev) => !ev.needsTimeSlot));
-  const loading = initialLoading;
+  const loading = !hasLoaded;
   // The venue grid's own visible height — the Holding column matches it so
   // the two sit level and the Split Area's 50% resolves against something
   // definite.

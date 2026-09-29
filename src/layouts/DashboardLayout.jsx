@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Layout, theme } from 'antd';
 import Sidebar from '../components/Sidebar';
 import Navbar from '../components/Navbar';
@@ -7,19 +7,24 @@ import SubHeader from '../components/SubHeader';
 const { Content } = Layout;
 
 export default function DashboardLayout({ children, onAdd, headerAction, collapseSidebar = false }) {
+  // A page can ask for the sidebar out of the way (the Datesheet's month
+  // grid wants the width) without clobbering the user's own saved
+  // preference — nothing is written to localStorage here, and they can
+  // still expand it by hand while on that page.
   const [collapsed, setCollapsed] = useState(() => {
+    if (collapseSidebar) return true;
     const saved = localStorage.getItem('exevas_sidebar_collapsed');
     if (saved !== null) return saved === 'true';
     return window.innerWidth < 768;
   });
 
-  // A page can ask for the sidebar out of the way (the Datesheet's month
-  // grid wants the width) without clobbering the user's own saved
-  // preference — nothing is written to localStorage here, and they can
-  // still expand it by hand while on that page.
-  useEffect(() => {
+  // The same ask arriving later (switching into the month view) collapses
+  // it then. Adjusted during render rather than in an effect.
+  const [prevCollapseSidebar, setPrevCollapseSidebar] = useState(collapseSidebar);
+  if (prevCollapseSidebar !== collapseSidebar) {
+    setPrevCollapseSidebar(collapseSidebar);
     if (collapseSidebar) setCollapsed(true);
-  }, [collapseSidebar]);
+  }
 
   const handleToggle = () => {
     setCollapsed((c) => {

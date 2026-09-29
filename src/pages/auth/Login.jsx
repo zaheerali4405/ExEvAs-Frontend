@@ -4,7 +4,7 @@ import { Form, Input, Button, Checkbox, Alert, Typography } from "antd";
 import { MailOutlined, LockOutlined } from "@ant-design/icons";
 import AuthLayout from "../../layouts/AuthLayout";
 import { login, send2faCode } from "../../api/authApi";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/useAuth";
 const { Title, Text } = Typography;
 
 export default function Login() {

@@ -7,8 +7,7 @@ import DashboardLayout from "../../layouts/DashboardLayout";
 import PageCard from "../../components/PageCard";
 import { getPermissions, setPermissionStatus, createPermission, updatePermission } from "../../api/permissionsApi";
 import { exportToExcel } from "../../utils/exportExcel";
-import { useAuth } from "../../context/AuthContext";
-
+import { useAuth } from "../../context/useAuth";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -48,20 +47,14 @@ export default function PermissionsList() {
   const [editingRecord, setEditingRecord] = useState(null);
   const [form] = Form.useForm();
 
-  const fetchPermissions = async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const { data } = await getPermissions();
-      setPermissions(data);
-    } catch (err) {
-      setError(err.response?.data?.message || "Could not load permissions.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { fetchPermissions(); }, []);
+  useEffect(() => {
+    let ignore = false;
+    getPermissions()
+      .then(({ data }) => { if (!ignore) setPermissions(data); })
+      .catch((err) => { if (!ignore) setError(err.response?.data?.message || "Could not load permissions."); })
+      .finally(() => { if (!ignore) setLoading(false); });
+    return () => { ignore = true; };
+  }, []);
 
   const filtered = useMemo(() => {
     if (!searchTerm.trim()) return permissions;
@@ -77,7 +70,6 @@ export default function PermissionsList() {
   }, [permissions, searchBy, searchTerm]);
 
   // Reset to page 1 when search changes
-  useEffect(() => { setCurrentPage(1); }, [searchTerm, searchBy, pageSize]);
 
   const handleToggle = (permission) => {
     const activate = !permission.isActive;
@@ -226,14 +218,14 @@ export default function PermissionsList() {
             allowClear
             options={searchableColumns}
             value={searchBy}
-            onChange={(val) => setSearchBy(val ?? null)}
+            onChange={(val) => { setSearchBy(val ?? null); setCurrentPage(1); }}
             style={{ width: "100%" }}
           />
           <Input
             placeholder="Search..."
             allowClear
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
             style={{ width: "auto" }}
           />
           <Button icon={<DownloadOutlined />} onClick={handleExport} style={{ width: "100%" }}>
@@ -261,7 +253,7 @@ export default function PermissionsList() {
                 <Select
                   value={pageSize}
                   options={PAGE_SIZE_OPTIONS.map((n) => ({ value: n, label: `${n}` }))}
-                  onChange={(val) => setPageSize(val)}
+                  onChange={(val) => { setPageSize(val); setCurrentPage(1); }}
                   style={{ cursor: "pointer" }}
                 />
                 <span style={{ fontSize: 14, color: "#595959" }}>Entries</span>

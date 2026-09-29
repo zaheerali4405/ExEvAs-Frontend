@@ -3,7 +3,7 @@ import { Alert, Spin } from "antd";
 import DashboardLayout from "../../layouts/DashboardLayout";
 import { getAllTasks } from "../../api/tasksApi";
 import { TASK_STATUS_LABELS, taskStage } from "../../utils/taskStatus";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth } from "../../context/useAuth";
 import TaskPreview from "./TaskPreview";
 import NewTaskModal from "./NewTaskModal";
 import {
@@ -37,6 +37,13 @@ export default function TasksPage() {
   const [selectedId, setSelectedId] = useState(null);
   const [showPreview, setShowPreview] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
+  // Bumped on every open and used as the New Task modal's key, so each
+  // opening starts from fresh state.
+  const [newOpenCount, setNewOpenCount] = useState(0);
+  const openNewTask = () => {
+    setNewOpenCount((n) => n + 1);
+    setNewOpen(true);
+  };
 
   useEffect(() => {
     (async () => {
@@ -157,7 +164,7 @@ export default function TasksPage() {
   );
 
   return (
-    <DashboardLayout onAdd={can("task.create") ? () => setNewOpen(true) : undefined}>
+    <DashboardLayout onAdd={can("task.create") ? openNewTask : undefined}>
       {error && <Alert type="error" showIcon message={error} closable onClose={() => setError("")} style={{ marginBottom: 16 }} />}
       <InboxLayout
         listHeader={listHeader}
@@ -173,6 +180,7 @@ export default function TasksPage() {
         }
       />
       <NewTaskModal
+        key={newOpenCount}
         open={newOpen}
         onClose={() => setNewOpen(false)}
         onCreated={(task) => {

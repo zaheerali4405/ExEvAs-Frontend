@@ -22,10 +22,11 @@ const ACTION_LABELS = { okay: "accepted it", forwarded: "forwarded it", reassign
 //
 // Used in two places: the window My Notifications opens, and the preview pane
 // of My Tasks' Sent to me tab. onActed is told after any action, with the
-// refreshed status update.
+// refreshed status update. Both key it by deliveryId, so showing a different
+// update starts from fresh state.
 export default function TaskUpdateView({ deliveryId, onActed }) {
   const [detail, setDetail] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(!!deliveryId);
   const [error, setError] = useState("");
   const [designations, setDesignations] = useState([]);
   const [mode, setMode] = useState(null); // null | "forward" | "reassign"
@@ -36,24 +37,20 @@ export default function TaskUpdateView({ deliveryId, onActed }) {
 
   useEffect(() => {
     if (!deliveryId) return;
-    setDetail(null);
-    setError("");
-    setMode(null);
-    setLoading(true);
-    (async () => {
-      try {
-        const [{ data }, { data: options }] = await Promise.all([
-          getTaskUpdate(deliveryId),
-          getTaskDesignationOptions(),
-        ]);
+    let ignore = false;
+    Promise.all([getTaskUpdate(deliveryId), getTaskDesignationOptions()])
+      .then(([{ data }, { data: options }]) => {
+        if (ignore) return;
         setDetail(data);
         setDesignations(options);
-      } catch (err) {
-        setError(err.response?.data?.message || "Could not load this status update.");
-      } finally {
-        setLoading(false);
-      }
-    })();
+      })
+      .catch((err) => {
+        if (!ignore) setError(err.response?.data?.message || "Could not load this status update.");
+      })
+      .finally(() => {
+        if (!ignore) setLoading(false);
+      });
+    return () => { ignore = true; };
   }, [deliveryId]);
 
   const designationOptions = useMemo(
