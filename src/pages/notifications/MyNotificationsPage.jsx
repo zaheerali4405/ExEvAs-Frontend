@@ -154,12 +154,19 @@ export default function MyNotificationsPage() {
                   avatar={<Badge dot={!item.isRead} offset={[-2, 2]} color="#1AB394" />}
                   title={
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      {/* A task notification says only "<task> - <exam>";
+                          its label says which moment it's about. */}
+                      {item.notification.taskNotification && (
+                        <Tag color="blue" style={{ marginInlineEnd: 0 }}>{item.notification.taskNotification.name}</Tag>
+                      )}
                       <Text strong={!item.isRead}>{item.notification.subject}</Text>
                     </div>
                   }
                   description={
                     <div>
-                      <div style={{ whiteSpace: "pre-line" }}>{item.notification.message}</div>
+                      {item.notification.message && (
+                        <div style={{ whiteSpace: "pre-line" }}>{item.notification.message}</div>
+                      )}
                       <Text type="secondary" style={{ fontSize: 12 }}>
                         {receivedReadLabel(item)}
                       </Text>

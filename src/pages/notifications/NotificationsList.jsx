@@ -31,7 +31,17 @@ const recipientName = (user) => {
 const CATEGORY_TABS = [
   { key: "manual", label: "Manual" },
   { key: "automatic", label: "Automatic" },
+  { key: "task_notification", label: "Task" },
 ];
+
+// Automatic and Task notifications are generated and sent on a schedule:
+// they have a send time, can be cancelled or reactivated, and are never
+// edited or sent by hand.
+const SCHEDULED_CATEGORIES = ["automatic", "task_notification"];
+
+// Where a scheduled notification came from: its notification template, or
+// for a task notification, the task notification it's a copy of.
+const templateName = (r) => r.template?.name ?? r.taskNotification?.name ?? "";
 
 const searchableColumns = [
   { value: "subject", label: "Subject" },
@@ -222,13 +232,13 @@ export default function NotificationsList() {
   };
 
   const handleExport = () => {
-    const isAutomatic = categoryTab === "automatic";
+    const isAutomatic = SCHEDULED_CATEGORIES.includes(categoryTab);
     exportToExcel(
       filtered,
       [
         { label: "S.No.",      accessor: (_, i) => i + 1 },
         { label: "Subject",    accessor: (r) => r.subject },
-        ...(isAutomatic ? [{ label: "Template", accessor: (r) => r.template?.name || "" }] : []),
+        ...(isAutomatic ? [{ label: "Template", accessor: (r) => templateName(r) }] : []),
         { label: "Status",     accessor: (r) => STATUS_LABELS[r.status] },
         { label: "Recipients", accessor: (r) => r._count?.recipients ?? 0 },
         ...(isAutomatic ? [
@@ -244,7 +254,7 @@ export default function NotificationsList() {
   const startEntry = filtered.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
   const endEntry = Math.min(currentPage * pageSize, filtered.length);
 
-  const isAutomaticTab = categoryTab === "automatic";
+  const isAutomaticTab = SCHEDULED_CATEGORIES.includes(categoryTab);
 
   const columns = [
     {
@@ -260,7 +270,7 @@ export default function NotificationsList() {
     ...(isAutomaticTab ? [{
       title: "Template",
       width: 170,
-      render: (_, r) => r.template?.name ?? "—",
+      render: (_, r) => templateName(r) || "—",
     }] : []),
     {
       title: "Recipients",
@@ -478,9 +488,9 @@ export default function NotificationsList() {
               <Descriptions.Item label="Sent At">
                 {detailsRecord.sentAt ? dayjs(detailsRecord.sentAt).format("DD MMM YYYY, hh:mm A") : "—"}
               </Descriptions.Item>
-              {detailsRecord.category === "automatic" && (
+              {SCHEDULED_CATEGORIES.includes(detailsRecord.category) && (
                 <>
-                  <Descriptions.Item label="Template">{detailsRecord.template?.name ?? "—"}</Descriptions.Item>
+                  <Descriptions.Item label="Template">{templateName(detailsRecord) || "—"}</Descriptions.Item>
                   <Descriptions.Item label="Scheduled For">
                     {detailsRecord.scheduledFor ? dayjs(detailsRecord.scheduledFor).format("DD MMM YYYY, hh:mm A") : "—"}
                   </Descriptions.Item>

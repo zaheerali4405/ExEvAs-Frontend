@@ -51,7 +51,7 @@ const SINGULAR = { minutes: "minute", hours: "hour", days: "day", weeks: "week",
 const unitWord = (value, unit) => (value === 1 ? SINGULAR[unit] ?? unit : unit);
 
 // A series task measures from one exam of the batch rather than "the event",
-// so its timings read "12 weeks before the first exam's date".
+// so its timings read "12 Weeks before the First Exam's Date".
 function pointPhrase(basis, reference, seriesAnchor) {
   if (basis === "trigger_time") return "the trigger";
   if (basis === "open_time") return "the open time";
@@ -62,19 +62,61 @@ function pointPhrase(basis, reference, seriesAnchor) {
   return seriesAnchor ? `${whose} exam` : "the event";
 }
 
-const capitalise = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+// Linking words stay lowercase inside a title, as in "Measured from First
+// Exam of the Series".
+const SMALL_WORDS = new Set(["the", "of", "on", "at", "from", "before", "after"]);
 
-// Reads a stored offset back as a sentence: "16 weeks before the event
-// date", "2 days after the open time". With no offset it names the point
-// itself: "On the event date", "At the trigger".
+// Title case: every word capitalised except the small linking ones, which
+// are only capitalised when they start the phrase.
+const titleCase = (s) =>
+  s
+    .split(" ")
+    .map((word, i) => (i > 0 && SMALL_WORDS.has(word) ? word : word.charAt(0).toUpperCase() + word.slice(1)))
+    .join(" ");
+
+// Reads a stored offset back as a title: "16 Weeks before the Event Date",
+// "2 Days after the Open Time". With no offset it names the point itself:
+// "On the Event Date", "At the Trigger".
 export function describeOffset(basis, reference, direction, value, unit, seriesAnchor = null) {
   if (!basis) return "—";
   const point = pointPhrase(basis, reference, seriesAnchor);
-  if (!value) return capitalise(point.endsWith("date") ? `on ${point}` : `at ${point}`);
-  return capitalise(`${value} ${unitWord(value, unit)} ${direction} ${point}`);
+  if (!value) return titleCase(point.endsWith("date") ? `on ${point}` : `at ${point}`);
+  return titleCase(`${value} ${unitWord(value, unit)} ${direction} ${point}`);
 }
 
+// "2 Days", "1 Hour".
 export function describeGracePeriod(value, unit) {
   if (!value || !unit) return "None";
-  return `${value} ${unitWord(value, unit)}`;
+  return titleCase(`${value} ${unitWord(value, unit)}`);
+}
+
+// ── Task notifications ──
+// What a task template's notification is measured from: the task's own open
+// time, due time, or the end of its grace period (the due time itself when
+// there's no grace period).
+export const TASK_NOTIFICATION_BASIS_OPTIONS = [
+  { value: "open_time", label: "Task Opening" },
+  { value: "due_time", label: "Due Time" },
+  { value: "grace_end", label: "Grace Period End" },
+];
+
+export const TASK_NOTIFICATION_RECIPIENT_OPTIONS = [
+  { value: "assignee", label: "Assignee" },
+  { value: "senior", label: "Assignee's Senior" },
+  { value: "both", label: "Both" },
+];
+
+const TASK_POINT = {
+  open_time: "Task Opening",
+  due_time: "the Due Time",
+  grace_end: "the Grace Period End",
+};
+
+// When a task notification goes out, as a title: "On Task Opening",
+// "1 Day before the Due Time", "At the Grace Period End".
+export function describeTaskNotificationTime(basis, direction, value, unit) {
+  const point = TASK_POINT[basis];
+  if (!point) return "—";
+  if (!value) return basis === "open_time" ? `On ${point}` : titleCase(`at ${point}`);
+  return titleCase(`${value} ${unitWord(value, unit)} ${direction} ${point}`);
 }

@@ -31,6 +31,7 @@ import {
   ProfileOutlined,
   AppstoreOutlined,
   OrderedListOutlined,
+  AlertOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
@@ -78,6 +79,7 @@ const navItems = [
       { key: '/workflows',          icon: <PartitionOutlined />,   label: 'Workflows',          permission: 'workflow.read-all' },
       { key: '/activities',         icon: <AppstoreOutlined />,    label: 'Activities',         permission: 'activity.read-all' },
       { key: '/task-templates',     icon: <OrderedListOutlined />, label: 'Task Templates',     permission: 'task-template.read-all' },
+      { key: '/task-notifications', icon: <AlertOutlined />,      label: 'Task Notifications', permission: 'task-notification.read-all' },
     ],
   },
     {

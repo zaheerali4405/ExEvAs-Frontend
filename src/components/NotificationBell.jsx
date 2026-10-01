@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Badge, Dropdown, Button, List, Typography, Empty } from "antd";
+import { Badge, Dropdown, Button, List, Typography, Empty, Tag } from "antd";
 import { BellOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
@@ -58,7 +58,14 @@ export default function NotificationBell() {
             }}
           >
             <List.Item.Meta
-              title={<Text strong={!item.isRead} style={{ fontSize: 13 }}>{item.notification.subject}</Text>}
+              title={
+                <>
+                  {item.notification.taskNotification && (
+                    <Tag color="blue" style={{ fontSize: 11, marginInlineEnd: 6 }}>{item.notification.taskNotification.name}</Tag>
+                  )}
+                  <Text strong={!item.isRead} style={{ fontSize: 13 }}>{item.notification.subject}</Text>
+                </>
+              }
               description={
                 <Text type="secondary" style={{ fontSize: 12 }}>
                   {item.notification.sentAt ? dayjs(item.notification.sentAt).format("DD MMM, hh:mm A") : ""}

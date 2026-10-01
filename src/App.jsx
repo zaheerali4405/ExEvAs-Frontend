@@ -48,6 +48,7 @@ import NotificationTemplatesList from './pages/notification-templates/Notificati
 import WorkflowsList from './pages/workflows/WorkflowsList';
 import ActivitiesList from './pages/activities/ActivitiesList';
 import TaskTemplatesList from './pages/task-templates/TaskTemplatesList';
+import TaskNotificationsList from './pages/task-notifications/TaskNotificationsList';
 import MyTasksPage from './pages/tasks/MyTasksPage';
 import TasksPage from './pages/tasks/TasksPage';
 
@@ -369,6 +370,14 @@ function App() {
             element={
               <ProtectedRoute permission="task-template.read-all">
                 <TaskTemplatesList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/task-notifications"
+            element={
+              <ProtectedRoute permission="task-notification.read-all">
+                <TaskNotificationsList />
               </ProtectedRoute>
             }
           />
